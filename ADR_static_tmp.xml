@@ -13,6 +13,7 @@
       <I PROPERTY="Driver" VALUE="AdaptBL"/>
       <I PROPERTY="AdaptBL_surf" VALUE="102"/>
       <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
+      <I PROPERTY="AdaptBL_TransferMethod" VALUE="TRANSFER_METHOD"/>
     </SOLVERINFO>
         <TIMEINTEGRATIONSCHEME> 
             <METHOD> RungeKutta </METHOD> 
@@ -96,7 +97,7 @@
 
   <FILTERS>
     <FILTER TYPE="Error">
-        <PARAM NAME="OutputFile">ErrorFile_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL</PARAM>
+        <PARAM NAME="OutputFile">ErrorFile_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD</PARAM>
         <PARAM NAME="OutputFrequency">1</PARAM>
         <PARAM NAME="ConsoleOutput">0</PARAM>
     </FILTER>

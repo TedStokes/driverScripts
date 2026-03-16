@@ -24,7 +24,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 METRIC_COL = {'u_L2': 1, 'u_Linf': 2, 'u_H1': 3}
-FILE_RE = re.compile(r'ErrorFile_n_(\d+)_h_(.+)_p_(\d+)\.err$')
+FILE_RE = re.compile(r'ErrorFile_n_(\d+)_h_(.+)_p_(\d+)(?:_m_(.+))?\.err$')
 
 AXIS_LABELS = {
     'time': 'Time',
@@ -39,15 +39,19 @@ METRIC_LABELS = {
     'u_H1':  'H1 error',
 }
 
-# ── Combined-plot toggle ─────────────────────────────────────────────────────
-# Set True to overlay overall L2 and reprojection L2 (--sub-n1) on one axes
-# with distinct hue progressions.  The --sub-n1 flag is ignored in this mode.
-COMBINE_BOTH = True
-
-# Colormaps: primary = overall L2, secondary = reprojection L2 (COMBINE_BOTH)
+# Colormaps:
+#   primary   = overall L2 from KnownMappings runs  (--combine-both)
+#   secondary = KnownMappings reprojection L2        (--combine-both)
+#   tertiary  = ALE reprojection L2                  (--combine-both)
 _CMAPS  = {'n': 'Blues',   'h': 'Greens',  'p': 'Oranges'}
 _CMAPS2 = {'n': 'Reds',    'h': 'Purples', 'p': 'Blues'}
-# ─────────────────────────────────────────────────────────────────────────────
+_CMAPS3 = {'n': 'Greens',  'h': 'Reds',    'p': 'Purples'}
+
+# Per-method line style, marker, and legend-column order in non-combine mode
+_METHOD_LS     = {'KnownMappings': '-',  'ALE': '--'}
+_METHOD_MARKER = {'KnownMappings': 'o',  'ALE': 's'}
+_METHOD_LABEL  = {'KnownMappings': 'KM', 'ALE': 'ALE'}
+_METHOD_ORDER  = {'KnownMappings': 0,    'ALE': 1}
 
 
 def parse_filename(fname):
@@ -57,11 +61,12 @@ def parse_filename(fname):
     n = int(m.group(1))
     h = float(m.group(2).replace('dot', '.'))
     p = int(m.group(3))
-    return n, h, p
+    method = m.group(4) if m.group(4) else 'KnownMappings'
+    return n, h, p, method
 
 
 def get_var(run, key):
-    n, h, p, _ = run
+    n, h, p, method, _ = run
     return {'n': n, 'h': h, 'p': p}[key]
 
 
@@ -87,11 +92,17 @@ def main():
                         help='Directory containing .err files (default: results)')
     parser.add_argument('--sub-n1', action='store_true',
                         help='Subtract the equivalent direct projection error from each value')
+    parser.add_argument('--combine-both', action='store_true',
+                        help='Overlay overall (KM), KM reprojection, and ALE reprojection '
+                             'on one plot with three distinct colour progressions. '
+                             'Implies --sub-n1 for the reprojection series.')
     parser.add_argument('--logy', action='store_true',
                         help='Logarithmic y axis')
     parser.add_argument('--save', metavar='FILE',
                         help='Save figure to FILE instead of displaying it')
     args = parser.parse_args()
+
+    combine = args.combine_both
 
     if args.xaxis != 'time' and args.xaxis == args.color:
         sys.exit(f'Error: --xaxis and --color cannot both be "{args.xaxis}"')
@@ -109,32 +120,32 @@ def main():
         params = parse_filename(f)
         if params is None:
             continue
-        n, h, p = params
+        n, h, p, method = params
         if args.fix_n is not None and n != args.fix_n:
             continue
         if args.fix_h is not None and not np.isclose(h, args.fix_h):
             continue
         if args.fix_p is not None and p != args.fix_p:
             continue
-        runs.append((n, h, p, f))
+        runs.append((n, h, p, method, f))
 
     # In single-mode with --sub-n1, drop n=1 runs (they are the baseline).
-    # In COMBINE_BOTH mode the same filtering applies for the reprojection
-    # series, but we keep runs as-is here and handle it in the plot loop.
-    if args.sub_n1 and not COMBINE_BOTH:
-        runs = [(n, h, p, f) for n, h, p, f in runs if n != 1]
+    # In combine mode the same filtering applies for the reprojection series,
+    # but we keep runs as-is here and handle it in the plot loop.
+    if args.sub_n1 and not combine:
+        runs = [(n, h, p, method, f) for n, h, p, method, f in runs if n != 1]
 
     if not runs:
         sys.exit('No runs matched the given filters.')
 
     # Build n=1 baseline lookup: (h, p) -> final metric value
     baseline = {}
-    if args.sub_n1 or COMBINE_BOTH:
+    if args.sub_n1 or combine:
         for f in all_files:
             params = parse_filename(f)
             if params is None:
                 continue
-            n, h, p = params
+            n, h, p, method = params
             if n == 1:
                 data = np.loadtxt(f, skiprows=1)
                 baseline[(h, p)] = data[-1, mcol]
@@ -145,7 +156,11 @@ def main():
             sys.exit(f'--sub-n1: no n=1 baseline found for h={h}, p={p}')
         return baseline[key]
 
-    # Build colour maps
+    # Split runs by method
+    km_runs  = [(n, h, p, m, f) for (n, h, p, m, f) in runs if m == 'KnownMappings']
+    ale_runs = [(n, h, p, m, f) for (n, h, p, m, f) in runs if m == 'ALE']
+
+    # Build colour maps (colour_vals from all runs so both methods share the same palette)
     color_vals = sorted(set(get_var(run, args.color) for run in runs))
     n_cols = len(color_vals)
     # Sample 0.35–0.9 to avoid near-white at the light end
@@ -154,9 +169,11 @@ def main():
     cmap = plt.get_cmap(_CMAPS[args.color])
     color_map = {v: cmap(s) for v, s in zip(color_vals, _samples)}
 
-    if COMBINE_BOTH:
+    if combine:
         cmap2 = plt.get_cmap(_CMAPS2[args.color])
         color_map2 = {v: cmap2(s) for v, s in zip(color_vals, _samples)}
+        cmap3 = plt.get_cmap(_CMAPS3[args.color])
+        color_map3 = {v: cmap3(s) for v, s in zip(color_vals, _samples)}
 
     fig, ax = plt.subplots(figsize=(8, 5))
     seen_labels = set()
@@ -166,73 +183,125 @@ def main():
         print(run)
 
     if args.xaxis == 'time':
-        for run in runs:
-            n, h, p, f = run
-            data = np.loadtxt(f, skiprows=1)
-            cv = get_var(run, args.color)
+        if combine:
+            # Overall + KM reprojection from km_runs
+            for run in km_runs:
+                n, h, p, method, f = run
+                data = np.loadtxt(f, skiprows=1)
+                cv = get_var(run, args.color)
 
-            if COMBINE_BOTH:
-                # Overall series
                 label = f'{args.color} = {cv} (overall)'
                 ax.plot(data[:, 0], data[:, mcol],
                         color=color_map[cv],
                         label=label if label not in seen_labels else '_nolegend_')
                 seen_labels.add(label)
-                # Reprojection series
-                label2 = f'{args.color} = {cv} (reprojection)'
+
+                label2 = f'{args.color} = {cv} (KM reproj)'
                 ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
                         color=color_map2[cv],
                         label=label2 if label2 not in seen_labels else '_nolegend_')
                 seen_labels.add(label2)
-            else:
+
+            # ALE reprojection from ale_runs
+            for run in ale_runs:
+                n, h, p, method, f = run
+                data = np.loadtxt(f, skiprows=1)
+                cv = get_var(run, args.color)
+                label3 = f'{args.color} = {cv} (ALE reproj)'
+                ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
+                        color=color_map3[cv],
+                        label=label3 if label3 not in seen_labels else '_nolegend_')
+                seen_labels.add(label3)
+
+        else:
+            # One line per (method, cv) combination; method → linestyle
+            for run in runs:
+                n, h, p, method, f = run
+                data = np.loadtxt(f, skiprows=1)
+                cv = get_var(run, args.color)
                 yvals = data[:, mcol]
                 if args.sub_n1:
                     yvals = yvals - get_baseline(h, p)
-                label = f'{args.color} = {cv}'
+                mlabel = _METHOD_LABEL.get(method, method)
+                label = f'{args.color} = {cv} ({mlabel})'
                 ax.plot(data[:, 0], yvals,
                         color=color_map[cv],
+                        linestyle=_METHOD_LS.get(method, '-'),
                         label=label if label not in seen_labels else '_nolegend_')
                 seen_labels.add(label)
 
     else:
         # One point per run: final-timestep error (last row = post-adaptation value)
-        groups = defaultdict(list)
-        groups2 = defaultdict(list)  # reprojection series for COMBINE_BOTH
+        if combine:
+            groups  = defaultdict(list)  # overall KM
+            groups2 = defaultdict(list)  # KM reprojection
+            groups3 = defaultdict(list)  # ALE reprojection
 
-        for run in runs:
-            n, h, p, f = run
-            data = np.loadtxt(f, skiprows=1)
-            final_err = data[-1, mcol]
-            xv = get_var(run, args.xaxis)
-            cv = get_var(run, args.color)
-
-            if COMBINE_BOTH:
+            for run in km_runs:
+                n, h, p, method, f = run
+                data = np.loadtxt(f, skiprows=1)
+                final_err = data[-1, mcol]
+                xv = get_var(run, args.xaxis)
+                cv = get_var(run, args.color)
                 groups[cv].append((xv, final_err))
                 groups2[cv].append((xv, final_err - get_baseline(h, p)))
-            else:
-                if args.sub_n1:
-                    final_err -= get_baseline(h, p)
-                groups[cv].append((xv, final_err))
 
-        for cv in sorted(groups.keys()):
-            pts = sorted(groups[cv])
-            xs, ys = zip(*pts)
-            print(ys)
-            label_suffix = ' (overall)' if COMBINE_BOTH else ''
-            ax.plot(xs, ys, marker='o', color=color_map[cv],
-                    label=f'{args.color} = {cv}{label_suffix}')
+            for run in ale_runs:
+                n, h, p, method, f = run
+                data = np.loadtxt(f, skiprows=1)
+                final_err = data[-1, mcol]
+                xv = get_var(run, args.xaxis)
+                cv = get_var(run, args.color)
+                groups3[cv].append((xv, final_err - get_baseline(h, p)))
 
-        if COMBINE_BOTH:
+            for cv in sorted(groups.keys()):
+                pts = sorted(groups[cv])
+                xs, ys = zip(*pts)
+                print(ys)
+                ax.plot(xs, ys, marker='o', color=color_map[cv],
+                        label=f'{args.color} = {cv} (overall)')
+
             for cv in sorted(groups2.keys()):
                 pts = sorted(groups2[cv])
                 xs, ys = zip(*pts)
                 ax.plot(xs, ys, marker='s', color=color_map2[cv],
-                        label=f'{args.color} = {cv} (reprojection)')
+                        label=f'{args.color} = {cv} (KM reproj)')
+
+            for cv in sorted(groups3.keys()):
+                pts = sorted(groups3[cv])
+                xs, ys = zip(*pts)
+                ax.plot(xs, ys, marker='^', color=color_map3[cv],
+                        label=f'{args.color} = {cv} (ALE reproj)')
+
+        else:
+            # Key by (method, cv) so KM and ALE are separate lines
+            groups = defaultdict(list)
+
+            for run in runs:
+                n, h, p, method, f = run
+                data = np.loadtxt(f, skiprows=1)
+                final_err = data[-1, mcol]
+                if args.sub_n1:
+                    final_err -= get_baseline(h, p)
+                xv = get_var(run, args.xaxis)
+                cv = get_var(run, args.color)
+                groups[(method, cv)].append((xv, final_err))
+
+            for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
+                pts = sorted(groups[(method, cv)])
+                xs, ys = zip(*pts)
+                print(ys)
+                mlabel = _METHOD_LABEL.get(method, method)
+                ax.plot(xs, ys,
+                        marker=_METHOD_MARKER.get(method, 'o'),
+                        linestyle=_METHOD_LS.get(method, '-'),
+                        color=color_map[cv],
+                        label=f'{args.color} = {cv} ({mlabel})')
 
         if args.logy:
             ax.set_yscale('log')
 
-    if COMBINE_BOTH:
+    if combine:
         base_label = METRIC_LABELS[args.metric]
         ylabel = f'Overall & Reprojection {base_label}'
     else:
@@ -245,11 +314,14 @@ def main():
     if args.fix_n is not None: fixed_parts.append(f'n={args.fix_n}')
     if args.fix_h is not None: fixed_parts.append(f'h={args.fix_h}')
     if args.fix_p is not None: fixed_parts.append(f'p={args.fix_p}')
-    fixed_str = ',  '.join(fixed_parts) if fixed_parts else 'none fixed'
     # ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}  ({fixed_str})')
     ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}')
-    ax.legend(ncol=2 if COMBINE_BOTH else 1, fontsize='small', framealpha=0.5,
-              loc='upper right', bbox_to_anchor=(0.99, 0.805) if COMBINE_BOTH else (0.01, 0.99))
+    if combine:
+        ax.legend(ncol=3, fontsize='small', framealpha=0.5,
+                  loc='upper right', bbox_to_anchor=(0.99, 0.805))
+    else:
+        ncol = 2 if len(set(m for _, _, _, m, _ in runs)) > 1 else 1
+        ax.legend(ncol=ncol, fontsize='small', framealpha=0.5)
     ax.grid(True, which='both', linestyle='--', alpha=0.4)
     plt.tight_layout()
 
