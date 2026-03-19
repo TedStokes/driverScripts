@@ -169,11 +169,10 @@ def main():
     cmap = plt.get_cmap(_CMAPS[args.color])
     color_map = {v: cmap(s) for v, s in zip(color_vals, _samples)}
 
-    if combine:
-        cmap2 = plt.get_cmap(_CMAPS2[args.color])
-        color_map2 = {v: cmap2(s) for v, s in zip(color_vals, _samples)}
-        cmap3 = plt.get_cmap(_CMAPS3[args.color])
-        color_map3 = {v: cmap3(s) for v, s in zip(color_vals, _samples)}
+    cmap2 = plt.get_cmap(_CMAPS2[args.color])
+    color_map2 = {v: cmap2(s) for v, s in zip(color_vals, _samples)}
+    cmap3 = plt.get_cmap(_CMAPS3[args.color])
+    color_map3 = {v: cmap3(s) for v, s in zip(color_vals, _samples)}
 
     fig, ax = plt.subplots(figsize=(8, 5))
     seen_labels = set()
@@ -214,7 +213,8 @@ def main():
                 seen_labels.add(label3)
 
         else:
-            # One line per (method, cv) combination; method → linestyle
+            # One line per (method, cv) combination; method → linestyle + colour palette
+            _METHOD_CMAP = {'KnownMappings': color_map2, 'ALE': color_map3}
             for run in runs:
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
@@ -224,8 +224,9 @@ def main():
                     yvals = yvals - get_baseline(h, p)
                 mlabel = _METHOD_LABEL.get(method, method)
                 label = f'{args.color} = {cv} ({mlabel})'
+                cmap_m = _METHOD_CMAP.get(method, color_map)
                 ax.plot(data[:, 0], yvals,
-                        color=color_map[cv],
+                        color=cmap_m[cv],
                         linestyle=_METHOD_LS.get(method, '-'),
                         label=label if label not in seen_labels else '_nolegend_')
                 seen_labels.add(label)
@@ -287,15 +288,17 @@ def main():
                 cv = get_var(run, args.color)
                 groups[(method, cv)].append((xv, final_err))
 
+            _METHOD_CMAP = {'KnownMappings': color_map2, 'ALE': color_map3}
             for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
                 pts = sorted(groups[(method, cv)])
                 xs, ys = zip(*pts)
                 print(ys)
                 mlabel = _METHOD_LABEL.get(method, method)
+                cmap_m = _METHOD_CMAP.get(method, color_map)
                 ax.plot(xs, ys,
                         marker=_METHOD_MARKER.get(method, 'o'),
                         linestyle=_METHOD_LS.get(method, '-'),
-                        color=color_map[cv],
+                        color=cmap_m[cv],
                         label=f'{args.color} = {cv} ({mlabel})')
 
         if args.logy:
@@ -314,8 +317,9 @@ def main():
     if args.fix_n is not None: fixed_parts.append(f'n={args.fix_n}')
     if args.fix_h is not None: fixed_parts.append(f'h={args.fix_h}')
     if args.fix_p is not None: fixed_parts.append(f'p={args.fix_p}')
-    # ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}  ({fixed_str})')
-    ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}')
+    fixed_str = ', '.join(fixed_parts)
+    ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}  ({fixed_str})')
+    # ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}')
     if combine:
         ax.legend(ncol=3, fontsize='small', framealpha=0.5,
                   loc='upper right', bbox_to_anchor=(0.99, 0.805))
