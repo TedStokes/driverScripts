@@ -8,7 +8,7 @@ usage() {
     echo "  n_values:        comma-separated NumRuns values    (e.g. \"1,2,4,8,16\")"
     echo "  h_values:        comma-separated AdaptBL_h values  (e.g. \"0.1,0.2,0.3\")"
     echo "  p_values:        comma-separated NUMMODES values   (e.g. \"3,5,7\")"
-    echo "  method_values:   comma-separated transfer methods  (default: \"KnownMappings\")"
+    echo "  method_values:   comma-separated transfer methods  (default: \"Projection\")"
 }
 
 max_jobs=1
@@ -33,7 +33,7 @@ io_checksteps=$1
 n_values=$2
 h_values=$3
 p_values=$4
-method_values="${5:-KnownMappings}"
+method_values="${5:-Projection}"
 
 if ! [[ "$io_checksteps" =~ ^[0-9]+$ ]]; then
     echo "Error: io_checksteps must be a non-negative integer."
@@ -81,6 +81,11 @@ for n in "${n_arr[@]}"; do
                 cp ADR_static_tmp.xml "$newfile"
 
                 sed -i "s/TRANSFER_METHOD/${method}/g" "$newfile"
+                if [[ "$method" == "ALE" ]]; then
+                    sed -i 's|MOVEMENT_BLOCK|  <MOVEMENT>\n    <ZONES>\n      <CALLBACK ID="0" DOMAIN="D[0]" />\n    </ZONES>\n  </MOVEMENT>|' "$newfile"
+                else
+                    sed -i '/MOVEMENT_BLOCK/d' "$newfile"
+                fi
                 sed -i "s/ADAPTBL_H_SAN/${h_san}/g"   "$newfile"
                 sed -i "s/ADAPTBL_H/${h}/g"            "$newfile"
                 sed -i "s/NUMRUNS/${n}/g"              "$newfile"
@@ -99,10 +104,11 @@ for n in "${n_arr[@]}"; do
                     run_cmd $NK1/ADRSolver-g bl_cube_new2.xml "$newfile" --force-output
                     mv "ErrorFile_n_${n}_h_${h_san}_p_${p}_m_${method_san}.err" results/ 2>/dev/null || true
                     if [ "$io_checksteps" -ne 0 ]; then
+                        echo "bash fieldconvert_multi.sh split1_v1.xml $newfile bl_cube_new2 sol_n${n}_h${h_san}_p${p}_m${method_san} $n 1"
                         run_cmd bash fieldconvert_multi.sh split1_v1.xml "$newfile" bl_cube_new2 \
-                            "sol_n${n}_h${h_san}_p${p}_m${method_san}" $n 1
+                            "sol_n${n}_h${h_san}_p${p}_m${method_san}" $n 1 $method_san
                     fi
-                    rm -f "$newfile"
+                    # rm -f "$newfile"
                 ) &
 
                 (( count++ ))

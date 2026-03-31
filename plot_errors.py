@@ -40,18 +40,18 @@ METRIC_LABELS = {
 }
 
 # Colormaps:
-#   primary   = overall L2 from KnownMappings runs  (--combine-both)
-#   secondary = KnownMappings reprojection L2        (--combine-both)
-#   tertiary  = ALE reprojection L2                  (--combine-both)
+#   primary   = overall L2 from Projection runs  (--combine-both)
+#   secondary = Projection solution transfer L2   (--combine-both)
+#   tertiary  = ALE solution transfer L2          (--combine-both)
 _CMAPS  = {'n': 'Blues',   'h': 'Greens',  'p': 'Oranges'}
 _CMAPS2 = {'n': 'Reds',    'h': 'Purples', 'p': 'Blues'}
 _CMAPS3 = {'n': 'Greens',  'h': 'Reds',    'p': 'Purples'}
 
 # Per-method line style, marker, and legend-column order in non-combine mode
-_METHOD_LS     = {'KnownMappings': '-',  'ALE': '--'}
-_METHOD_MARKER = {'KnownMappings': 'o',  'ALE': 's'}
-_METHOD_LABEL  = {'KnownMappings': 'KM', 'ALE': 'ALE'}
-_METHOD_ORDER  = {'KnownMappings': 0,    'ALE': 1}
+_METHOD_LS     = {'Projection': '-',    'ALE': '--'}
+_METHOD_MARKER = {'Projection': 'o',    'ALE': 's'}
+_METHOD_LABEL  = {'Projection': 'Proj', 'ALE': 'ALE'}
+_METHOD_ORDER  = {'Projection': 0,      'ALE': 1}
 
 
 def parse_filename(fname):
@@ -61,7 +61,7 @@ def parse_filename(fname):
     n = int(m.group(1))
     h = float(m.group(2).replace('dot', '.'))
     p = int(m.group(3))
-    method = m.group(4) if m.group(4) else 'KnownMappings'
+    method = m.group(4) if m.group(4) else 'Projection'
     return n, h, p, method
 
 
@@ -93,9 +93,9 @@ def main():
     parser.add_argument('--sub-n1', action='store_true',
                         help='Subtract the equivalent direct projection error from each value')
     parser.add_argument('--combine-both', action='store_true',
-                        help='Overlay overall (KM), KM reprojection, and ALE reprojection '
+                        help='Overlay overall (Proj), Projection solution transfer, and ALE solution transfer '
                              'on one plot with three distinct colour progressions. '
-                             'Implies --sub-n1 for the reprojection series.')
+                             'Implies --sub-n1 for the solution transfer series.')
     parser.add_argument('--logy', action='store_true',
                         help='Logarithmic y axis')
     parser.add_argument('--save', metavar='FILE',
@@ -130,7 +130,7 @@ def main():
         runs.append((n, h, p, method, f))
 
     # In single-mode with --sub-n1, drop n=1 runs (they are the baseline).
-    # In combine mode the same filtering applies for the reprojection series,
+    # In combine mode the same filtering applies for the solution transfer series,
     # but we keep runs as-is here and handle it in the plot loop.
     if args.sub_n1 and not combine:
         runs = [(n, h, p, method, f) for n, h, p, method, f in runs if n != 1]
@@ -157,7 +157,7 @@ def main():
         return baseline[key]
 
     # Split runs by method
-    km_runs  = [(n, h, p, m, f) for (n, h, p, m, f) in runs if m == 'KnownMappings']
+    km_runs  = [(n, h, p, m, f) for (n, h, p, m, f) in runs if m == 'Projection']
     ale_runs = [(n, h, p, m, f) for (n, h, p, m, f) in runs if m == 'ALE']
 
     # Build colour maps (colour_vals from all runs so both methods share the same palette)
@@ -183,7 +183,7 @@ def main():
 
     if args.xaxis == 'time':
         if combine:
-            # Overall + KM reprojection from km_runs
+            # Overall + Projection solution transfer from km_runs
             for run in km_runs:
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
@@ -195,18 +195,18 @@ def main():
                         label=label if label not in seen_labels else '_nolegend_')
                 seen_labels.add(label)
 
-                label2 = f'{args.color} = {cv} (KM reproj)'
+                label2 = f'{args.color} = {cv} (Proj sol. transfer)'
                 ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
                         color=color_map2[cv],
                         label=label2 if label2 not in seen_labels else '_nolegend_')
                 seen_labels.add(label2)
 
-            # ALE reprojection from ale_runs
+            # ALE solution transfer from ale_runs
             for run in ale_runs:
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
                 cv = get_var(run, args.color)
-                label3 = f'{args.color} = {cv} (ALE reproj)'
+                label3 = f'{args.color} = {cv} (ALE sol. transfer)'
                 ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
                         color=color_map3[cv],
                         label=label3 if label3 not in seen_labels else '_nolegend_')
@@ -214,7 +214,7 @@ def main():
 
         else:
             # One line per (method, cv) combination; method → linestyle + colour palette
-            _METHOD_CMAP = {'KnownMappings': color_map2, 'ALE': color_map3}
+            _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3}
             for run in runs:
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
@@ -235,8 +235,8 @@ def main():
         # One point per run: final-timestep error (last row = post-adaptation value)
         if combine:
             groups  = defaultdict(list)  # overall KM
-            groups2 = defaultdict(list)  # KM reprojection
-            groups3 = defaultdict(list)  # ALE reprojection
+            groups2 = defaultdict(list)  # Projection solution transfer
+            groups3 = defaultdict(list)  # ALE solution transfer
 
             for run in km_runs:
                 n, h, p, method, f = run
@@ -266,13 +266,13 @@ def main():
                 pts = sorted(groups2[cv])
                 xs, ys = zip(*pts)
                 ax.plot(xs, ys, marker='s', color=color_map2[cv],
-                        label=f'{args.color} = {cv} (KM reproj)')
+                        label=f'{args.color} = {cv} (Proj sol. transfer)')
 
             for cv in sorted(groups3.keys()):
                 pts = sorted(groups3[cv])
                 xs, ys = zip(*pts)
                 ax.plot(xs, ys, marker='^', color=color_map3[cv],
-                        label=f'{args.color} = {cv} (ALE reproj)')
+                        label=f'{args.color} = {cv} (ALE sol. transfer)')
 
         else:
             # Key by (method, cv) so KM and ALE are separate lines
@@ -288,7 +288,7 @@ def main():
                 cv = get_var(run, args.color)
                 groups[(method, cv)].append((xv, final_err))
 
-            _METHOD_CMAP = {'KnownMappings': color_map2, 'ALE': color_map3}
+            _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3}
             for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
                 pts = sorted(groups[(method, cv)])
                 xs, ys = zip(*pts)
@@ -306,10 +306,10 @@ def main():
 
     if combine:
         base_label = METRIC_LABELS[args.metric]
-        ylabel = f'Overall & Reprojection {base_label}'
+        ylabel = f'Overall & Solution Transfer {base_label}'
     else:
         base_label = METRIC_LABELS[args.metric]
-        ylabel = f'Reprojection {base_label}' if args.sub_n1 else f'Overall {base_label}'
+        ylabel = f'Solution Transfer {base_label}' if args.sub_n1 else f'Overall {base_label}'
 
     ax.set_xlabel(AXIS_LABELS[args.xaxis])
     ax.set_ylabel(ylabel)

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <NEKTAR>
+MOVEMENT_BLOCK
   <EXPANSIONS>
     <E COMPOSITE="C[100]" NUMMODES="NUMMODES_VAL" FIELDS="u" TYPE="MODIFIED" />
   </EXPANSIONS>
@@ -13,7 +14,7 @@
       <I PROPERTY="Driver" VALUE="AdaptBL"/>
       <I PROPERTY="AdaptBL_surf" VALUE="102"/>
       <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
-      <I PROPERTY="AdaptBL_TransferMethod" VALUE="TRANSFER_METHOD"/>
+      <I PROPERTY="AdaptBL_transfer" VALUE="TRANSFER_METHOD"/>
     </SOLVERINFO>
         <TIMEINTEGRATIONSCHEME> 
             <METHOD> RungeKutta </METHOD> 
