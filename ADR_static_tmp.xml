@@ -26,12 +26,16 @@ MOVEMENT_BLOCK
       <P> AdaptBL_h = ADAPTBL_H </P>
       <P> AdaptBL_nq = 5 </P>
         <P> NumQuadPointsError = 20 </P>
-          <P> TimeStep        = 0.002/NumRuns             </P>
+          <!-- <P> TimeStep        = 0.002/NumRuns             </P> -->
+          <P> TimeStep        = 0.01             </P>
           <P> NumSteps        = 1  </P>
           <P> IO_CheckSteps   = IO_CHECKSTEPS               </P>
-          <P> advx            = 0.0               </P>
+          <!-- <P> advx            = 0.0               </P>
           <P> advy            = 0.0               </P>
-          <P> advz            = 0.0               </P>
+          <P> advz            = 0.0               </P> -->
+          <P> advx            = 0.001               </P>
+          <P> advy            = 0.001               </P>
+          <P> advz            = 0.001               </P>
           <P> k               = 2*PI * 2.5              </P>
     </PARAMETERS>
 
@@ -50,32 +54,32 @@ MOVEMENT_BLOCK
     <BOUNDARYCONDITIONS>
       <REGION REF="0"> <!-- noslip Wall -->
         <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
       </REGION>
 
       <REGION REF="1"> <!-- noslip Wall -->
         <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
       </REGION>
 
       <REGION REF="2"> <!-- Inflow -->
         <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
       </REGION>
 
       <REGION REF="3"> <!-- Outflow -->
         <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
       </REGION>
 
       <REGION REF="4"> <!-- symmetric slip -->
         <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
       </REGION>
 
       <REGION REF="5"> <!-- symmetric slip -->
         <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
       </REGION>
 
     </BOUNDARYCONDITIONS>
@@ -87,11 +91,13 @@ MOVEMENT_BLOCK
     </FUNCTION>
 
     <FUNCTION NAME="ExactSolution">
-        <E VAR="u"  VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+        <E VAR="u"  
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
     </FUNCTION>
 
     <FUNCTION NAME="InitialConditions">
-        <E VAR="u"  VALUE="sin(k*x)*cos(k*y)*cos(k*z+2*PI*x)" />
+        <E VAR="u"  
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t))*cos(k*(z-advz*t)+2*PI*x)" />
     </FUNCTION>
 
   </CONDITIONS>
@@ -101,6 +107,10 @@ MOVEMENT_BLOCK
         <PARAM NAME="OutputFile">ErrorFile_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD</PARAM>
         <PARAM NAME="OutputFrequency">1</PARAM>
         <PARAM NAME="ConsoleOutput">0</PARAM>
+    </FILTER>
+    <FILTER TYPE="FieldConvert">
+      <PARAM NAME="OutputFile">sol_filt_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD.vtu:vtu:highorder</PARAM>
+      <PARAM NAME="OutputFrequency">1</PARAM>
     </FILTER>
   </FILTERS>
 </NEKTAR>

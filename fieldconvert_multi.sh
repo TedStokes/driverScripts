@@ -28,6 +28,20 @@ transfer="$7"          # ALE or Projection
 
 start=0
 
+# For ALE, both the mesh XML and driver XML contain a <MOVEMENT> block with a
+# CALLBACK zone.  FieldConvert never registers these callbacks (only ADRSolver
+# does), so OutputVtk::v_OutputFromExpERN crashes when it calls PerformMovement
+# on an empty std::function.  Strip <MOVEMENT> from both XMLs; the geometry is
+# already baked into each .chk file at checkpoint time.
+fc_driver_xml="$driver_xml"
+tmp_driver_xml=""
+strip_movement() { sed '/<MOVEMENT>/,/<\/MOVEMENT>/d' "$1"; }
+if [[ "$transfer" == "ALE" ]]; then
+    tmp_driver_xml=$(mktemp --suffix=.xml)
+    strip_movement "$driver_xml" > "$tmp_driver_xml"
+    fc_driver_xml="$tmp_driver_xml"
+fi
+
 for ((run=1; run<=numruns; run++)); do
 
     # Increment split1_vN.xml
@@ -51,15 +65,26 @@ for ((run=1; run<=numruns; run++)); do
 
     echo "Run $run: converting $start → $end using $current_mesh"
 
-    # echo "bash fieldconvert_chks.sh $current_mesh $driver_xml $chk_prefix $out_prefix $start $end"
+    fc_mesh_xml="$current_mesh"
+    tmp_mesh_xml=""
+    if [[ "$transfer" == "ALE" ]]; then
+        tmp_mesh_xml=$(mktemp --suffix=.xml)
+        strip_movement "$current_mesh" > "$tmp_mesh_xml"
+        fc_mesh_xml="$tmp_mesh_xml"
+    fi
+
+    # echo "bash fieldconvert_chks.sh $fc_mesh_xml $fc_driver_xml $chk_prefix $out_prefix $start $end"
     bash fieldconvert_chks.sh \
-        "$current_mesh" \
-        "$driver_xml" \
+        "$fc_mesh_xml" \
+        "$fc_driver_xml" \
         "$chk_prefix" \
         "$out_prefix" \
         "$start" \
         "$end"
 
+    [[ -n "$tmp_mesh_xml" ]] && rm -f "$tmp_mesh_xml"
     start=$(( end + 1 ))
 
 done
+
+[[ -n "$tmp_driver_xml" ]] && rm -f "$tmp_driver_xml"

@@ -101,11 +101,11 @@ for n in "${n_arr[@]}"; do
                 echo "=== Starting: NumRuns=${n}, AdaptBL_h=${h}, NUMMODES=${p}, method=${method} ==="
 
                 (
-                    run_cmd $NK1/ADRSolver-g bl_cube_new2.xml "$newfile" --force-output
+                    run_cmd $NK1/ADRSolver-g bl_cube_new2-order5.xml "$newfile" --force-output
                     mv "ErrorFile_n_${n}_h_${h_san}_p_${p}_m_${method_san}.err" results/ 2>/dev/null || true
                     if [ "$io_checksteps" -ne 0 ]; then
-                        echo "bash fieldconvert_multi.sh split1_v1.xml $newfile bl_cube_new2 sol_n${n}_h${h_san}_p${p}_m${method_san} $n 1"
-                        run_cmd bash fieldconvert_multi.sh split1_v1.xml "$newfile" bl_cube_new2 \
+                        echo "bash fieldconvert_multi.sh split1_v1.xml $newfile bl_cube_new2-order5 sol_n${n}_h${h_san}_p${p}_m${method_san} $n 1"
+                        run_cmd bash fieldconvert_multi.sh split1_v1.xml "$newfile" bl_cube_new2-order5 \
                             "sol_n${n}_h${h_san}_p${p}_m${method_san}" $n 1 $method_san
                     fi
                     # rm -f "$newfile"
