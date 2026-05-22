@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NEKTAR>
+MOVEMENT_BLOCK
+  <EXPANSIONS>
+    <E COMPOSITE="C[101]" NUMMODES="NUMMODES_VAL" FIELDS="u" TYPE="MODIFIED" />
+  </EXPANSIONS>
+
+  <CONDITIONS>
+    <SOLVERINFO>
+            <I PROPERTY="EQTYPE"                VALUE="UnsteadyAdvection"   />
+            <I PROPERTY="Projection"            VALUE="DisContinuous"       />
+            <I PROPERTY="AdvectionType"         VALUE="WeakDG"              />
+            <I PROPERTY="UpwindType"            VALUE="Upwind"              />
+      <I PROPERTY="Driver" VALUE="AdaptBL"/>
+      <I PROPERTY="AdaptBL_surf" VALUE="103"/>
+      <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
+      <I PROPERTY="AdaptBL_transfer" VALUE="TRANSFER_METHOD"/>
+      <I PROPERTY="AdaptBL_interpMethod" VALUE="Shepard"/>
+    </SOLVERINFO>
+        <TIMEINTEGRATIONSCHEME>
+            <METHOD> RungeKutta </METHOD>
+            <ORDER> 4 </ORDER>
+        </TIMEINTEGRATIONSCHEME>
+    <PARAMETERS>
+      <P> NumRuns = NUMRUNS </P>
+      <P> AdaptBL_nLayers = 1 </P>
+      <P> AdaptBL_h = ADAPTBL_H </P>
+      <P> AdaptBL_nq = 7 </P>
+        <P> NumQuadPointsError = 20 </P>
+          <P> TimeStep        = 0.01             </P>
+          <P> NumSteps        = 1  </P>
+          <P> advx            = 0.001               </P>
+          <P> advy            = 0.001               </P>
+          <P> k               = 2*PI * 2.5              </P>
+    </PARAMETERS>
+
+    <VARIABLES>
+      <V ID="0"> u </V>
+    </VARIABLES>
+
+    <BOUNDARYREGIONS>
+      <B ID="0"> C[102]  </B>
+      <B ID="1"> C[103]  </B>
+      <B ID="2"> C[104]  </B>
+      <B ID="3"> C[105]  </B>
+    </BOUNDARYREGIONS>
+    <BOUNDARYCONDITIONS>
+      <REGION REF="0">
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+2*PI*x)" />
+      </REGION>
+
+      <REGION REF="1">
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+2*PI*x)" />
+      </REGION>
+
+      <REGION REF="2">
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+2*PI*x)" />
+      </REGION>
+
+      <REGION REF="3">
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+2*PI*x)" />
+      </REGION>
+
+    </BOUNDARYCONDITIONS>
+
+    <FUNCTION NAME="AdvectionVelocity">
+        <E VAR="Vx" VALUE="advx" />
+        <E VAR="Vy" VALUE="advy" />
+    </FUNCTION>
+
+    <FUNCTION NAME="ExactSolution">
+        <E VAR="u"
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+2*PI*x)" />
+    </FUNCTION>
+
+    <FUNCTION NAME="InitialConditions">
+        <E VAR="u"
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+2*PI*x)" />
+    </FUNCTION>
+
+  </CONDITIONS>
+
+  <FILTERS>
+    <FILTER TYPE="Error">
+        <PARAM NAME="OutputFile">results/ErrorFile_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD</PARAM>
+        <PARAM NAME="OutputFrequency">1</PARAM>
+        <PARAM NAME="ConsoleOutput">0</PARAM>
+    </FILTER>
+    <FILTER TYPE="FieldConvert">
+      <PARAM NAME="OutputFile">results/sol_filt_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD.vtu:vtu:highorder</PARAM>
+      <PARAM NAME="OutputFrequency">1</PARAM>
+    </FILTER>
+  </FILTERS>
+</NEKTAR>
