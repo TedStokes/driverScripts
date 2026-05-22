@@ -15,6 +15,7 @@ MOVEMENT_BLOCK
       <I PROPERTY="AdaptBL_surf" VALUE="102"/>
       <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
       <I PROPERTY="AdaptBL_transfer" VALUE="TRANSFER_METHOD"/>
+      <I PROPERTY="AdaptBL_interpMethod" VALUE="Shepard"/>
     </SOLVERINFO>
         <TIMEINTEGRATIONSCHEME> 
             <METHOD> RungeKutta </METHOD> 
@@ -29,13 +30,13 @@ MOVEMENT_BLOCK
           <!-- <P> TimeStep        = 0.002/NumRuns             </P> -->
           <P> TimeStep        = 0.01             </P>
           <P> NumSteps        = 1  </P>
-          <P> IO_CheckSteps   = IO_CHECKSTEPS               </P>
-          <!-- <P> advx            = 0.0               </P>
+          <!-- <P> IO_CheckSteps   = IO_CHECKSTEPS               </P> -->
+          <P> advx            = 0.0               </P>
           <P> advy            = 0.0               </P>
-          <P> advz            = 0.0               </P> -->
-          <P> advx            = 0.001               </P>
+          <P> advz            = 0.0               </P>
+          <!-- <P> advx            = 0.001               </P>
           <P> advy            = 0.001               </P>
-          <P> advz            = 0.001               </P>
+          <P> advz            = 0.001               </P> -->
           <P> k               = 2*PI * 2.5              </P>
     </PARAMETERS>
 

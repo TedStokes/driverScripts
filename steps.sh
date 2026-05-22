@@ -40,6 +40,11 @@ if ! [[ "$io_checksteps" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
+if [ "$io_checksteps" -ne 0 ]; then
+    echo "Error: io_checksteps output has been abandoned. Use VTU filter output instead."
+    exit 1
+fi
+
 if [ ! -f "ADR_static_tmp.xml" ]; then
     echo "Error: ADR_static_tmp.xml not found."
     exit 1
@@ -99,6 +104,9 @@ for n in "${n_arr[@]}"; do
 
                 echo
                 echo "=== Starting: NumRuns=${n}, AdaptBL_h=${h}, NUMMODES=${p}, method=${method} ==="
+                if [ "$quiet" -eq 0 ]; then
+                    echo "  $NK1/ADRSolver-g bl_cube_new2-order5.xml $newfile --force-output"
+                fi
 
                 (
                     run_cmd $NK1/ADRSolver-g bl_cube_new2-order5.xml "$newfile" --force-output

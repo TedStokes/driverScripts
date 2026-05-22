@@ -301,6 +301,19 @@ def main():
                         color=cmap_m[cv],
                         label=f'{args.color} = {cv} ({mlabel})')
 
+            if args.sub_n1 and args.xaxis == 'n':
+                # Draw a horizontal orange reference line at the n=1 baseline error
+                # for each unique (h, p) combination, labelled by polynomial order.
+                seen_p = {}  # p -> baseline value (use first h encountered per p)
+                for n, h, p, method, f in runs:
+                    if p not in seen_p:
+                        seen_p[p] = get_baseline(h, p)
+                for p in sorted(seen_p):
+                    bval = seen_p[p]
+                    col = color_map[p] if args.color == 'p' else 'orange'
+                    ax.axhline(bval, color=col, linestyle='--', linewidth=1.5,
+                               label=f'n=1 error (p={p})', zorder=1)
+
         if args.logy:
             ax.set_yscale('log')
 
