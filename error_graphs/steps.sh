@@ -55,12 +55,12 @@ IFS=',' read -ra h_arr      <<< "$h_values"
 IFS=',' read -ra p_arr      <<< "$p_values"
 IFS=',' read -ra method_arr <<< "$method_values"
 
-mkdir -p results
+mkdir -p results/vtus
 
 # Suppress stdout/stderr of a command when -q is set
 run_cmd() {
     if [ "$quiet" -eq 1 ]; then
-        "$@" > /dev/null 2>&1
+        "$@" 2>&1 | grep --line-buffered -i "error" | grep -iv "warning" || true
     else
         "$@"
     fi
@@ -91,10 +91,11 @@ for n in "${n_arr[@]}"; do
                 else
                     sed -i '/MOVEMENT_BLOCK/d' "$newfile"
                 fi
-                sed -i "s/ADAPTBL_H_SAN/${h_san}/g"   "$newfile"
-                sed -i "s/ADAPTBL_H/${h}/g"            "$newfile"
-                sed -i "s/NUMRUNS/${n}/g"              "$newfile"
-                sed -i "s/NUMMODES_VAL/${p}/g"         "$newfile"
+                sed -i "s/OUTPUT_METHOD/${method_san}/g"   "$newfile"
+                sed -i "s/ADAPTBL_H_SAN/${h_san}/g"        "$newfile"
+                sed -i "s/ADAPTBL_H/${h}/g"                "$newfile"
+                sed -i "s/NUMRUNS/${n}/g"                  "$newfile"
+                sed -i "s/NUMMODES_VAL/${p}/g"             "$newfile"
 
                 if [ "$io_checksteps" -eq 0 ]; then
                     sed -i "/IO_CHECKSTEPS/d" "$newfile"
@@ -105,14 +106,14 @@ for n in "${n_arr[@]}"; do
                 echo
                 echo "=== Starting: NumRuns=${n}, AdaptBL_h=${h}, NUMMODES=${p}, method=${method} ==="
                 if [ "$quiet" -eq 0 ]; then
-                    echo "  $NK1/ADRSolver-g square.xml $newfile --force-output"
+                    echo "  $NK1/ADRSolver-g squarecols.xml $newfile --force-output"
                 fi
 
                 (
-                    run_cmd $NK1/ADRSolver-g square.xml "$newfile" --force-output
+                    run_cmd $NK1/ADRSolver-g squarecols.xml "$newfile" --force-output
                     if [ "$io_checksteps" -ne 0 ]; then
-                        echo "bash fieldconvert_multi.sh square.xml $newfile square sol_n${n}_h${h_san}_p${p}_m${method_san} $n 1"
-                        run_cmd bash fieldconvert_multi.sh square.xml "$newfile" square \
+                        echo "bash fieldconvert_multi.sh squarecols.xml $newfile square sol_n${n}_h${h_san}_p${p}_m${method_san} $n 1"
+                        run_cmd bash fieldconvert_multi.sh squarecols.xml "$newfile" square \
                             "sol_n${n}_h${h_san}_p${p}_m${method_san}" $n 1 $method_san
                     fi
                     # rm -f "$newfile"

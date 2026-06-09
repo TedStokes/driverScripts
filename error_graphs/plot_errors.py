@@ -46,12 +46,13 @@ METRIC_LABELS = {
 _CMAPS  = {'n': 'Blues',   'h': 'Greens',  'p': 'Oranges'}
 _CMAPS2 = {'n': 'Reds',    'h': 'Purples', 'p': 'Blues'}
 _CMAPS3 = {'n': 'Greens',  'h': 'Reds',    'p': 'Purples'}
+_CMAPS4 = {'n': 'Purples', 'h': 'Oranges', 'p': 'Greens'}
 
 # Per-method line style, marker, and legend-column order in non-combine mode
-_METHOD_LS     = {'Projection': '-',    'ALE': '--'}
-_METHOD_MARKER = {'Projection': 'o',    'ALE': 's'}
-_METHOD_LABEL  = {'Projection': 'Proj', 'ALE': 'ALE'}
-_METHOD_ORDER  = {'Projection': 0,      'ALE': 1}
+_METHOD_LS     = {'Projection': '-',    'ALE': '-',           'FullInterp': '-'}
+_METHOD_MARKER = {'Projection': 'o',    'ALE': 's',           'FullInterp': '^'}
+_METHOD_LABEL  = {'Projection': 'Proj', 'ALE': 'ALE',         'FullInterp': 'FullInterp'}
+_METHOD_ORDER  = {'Projection': 0,      'ALE': 1,             'FullInterp': 2}
 
 
 def parse_filename(fname):
@@ -96,11 +97,44 @@ def main():
                         help='Overlay overall (Proj), Projection solution transfer, and ALE solution transfer '
                              'on one plot with three distinct colour progressions. '
                              'Implies --sub-n1 for the solution transfer series.')
+    parser.add_argument('--exclude', action='append', default=[], metavar='KEY=VALUE',
+                        help='Exclude runs where KEY matches VALUE. '
+                             'Keys: n (int), h (float), p (int), method (str). '
+                             'Repeatable, e.g. --exclude method=ALE --exclude p=3')
     parser.add_argument('--logy', action='store_true',
                         help='Logarithmic y axis')
     parser.add_argument('--save', metavar='FILE',
                         help='Save figure to FILE instead of displaying it')
+    parser.add_argument('--subslides', action='store_true',
+                        help='Generate a sequence of PNGs revealing one colour-group at a time '
+                             '(stem taken from --save, or "plot" by default)')
     args = parser.parse_args()
+
+    # Parse --exclude specs into typed predicates
+    _EXCL_TYPES = {'n': int, 'h': float, 'p': int, 'method': str}
+    exclude_filters = []
+    for spec in args.exclude:
+        if '=' not in spec:
+            sys.exit(f'--exclude: expected KEY=VALUE, got "{spec}"')
+        key, _, val = spec.partition('=')
+        if key not in _EXCL_TYPES:
+            sys.exit(f'--exclude: unknown key "{key}". Valid keys: {list(_EXCL_TYPES)}')
+        for v in val.split(','):
+            try:
+                typed_val = _EXCL_TYPES[key](v)
+            except ValueError:
+                sys.exit(f'--exclude: cannot parse "{v}" as {_EXCL_TYPES[key].__name__} for key "{key}"')
+            exclude_filters.append((key, typed_val))
+
+    def is_excluded(n, h, p, method):
+        for key, val in exclude_filters:
+            run_val = {'n': n, 'h': h, 'p': p, 'method': method}[key]
+            if key == 'h':
+                if np.isclose(run_val, val):
+                    return True
+            elif run_val == val:
+                return True
+        return False
 
     combine = args.combine_both
 
@@ -126,6 +160,8 @@ def main():
         if args.fix_h is not None and not np.isclose(h, args.fix_h):
             continue
         if args.fix_p is not None and p != args.fix_p:
+            continue
+        if is_excluded(n, h, p, method):
             continue
         runs.append((n, h, p, method, f))
 
@@ -173,6 +209,10 @@ def main():
     color_map2 = {v: cmap2(s) for v, s in zip(color_vals, _samples)}
     cmap3 = plt.get_cmap(_CMAPS3[args.color])
     color_map3 = {v: cmap3(s) for v, s in zip(color_vals, _samples)}
+    cmap4 = plt.get_cmap(_CMAPS4[args.color])
+    color_map4 = {v: cmap4(s) for v, s in zip(color_vals, _samples)}
+
+    _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3, 'FullInterp': color_map4}
 
     fig, ax = plt.subplots(figsize=(8, 5))
     seen_labels = set()
@@ -214,7 +254,6 @@ def main():
 
         else:
             # One line per (method, cv) combination; method → linestyle + colour palette
-            _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3}
             for run in runs:
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
@@ -288,7 +327,6 @@ def main():
                 cv = get_var(run, args.color)
                 groups[(method, cv)].append((xv, final_err))
 
-            _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3}
             for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
                 pts = sorted(groups[(method, cv)])
                 xs, ys = zip(*pts)
@@ -333,16 +371,64 @@ def main():
     fixed_str = ', '.join(fixed_parts)
     ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}  ({fixed_str})')
     # ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}')
+    n_legend_items = len(ax.get_legend_handles_labels()[0])
+    ncol = max(1, n_legend_items // 4)
     if combine:
-        ax.legend(ncol=3, fontsize='small', framealpha=0.5,
-                  loc='upper right', bbox_to_anchor=(0.99, 0.805))
+        tmp_legend = ax.legend(ncol=ncol, fontsize='small', framealpha=0.5,
+                               loc='upper right', bbox_to_anchor=(0.99, 0.805))
     else:
-        ncol = 2 if len(set(m for _, _, _, m, _ in runs)) > 1 else 1
-        ax.legend(ncol=ncol, fontsize='small', framealpha=0.5)
+        tmp_legend = ax.legend(ncol=ncol, fontsize='small', framealpha=0.5, loc='best')
+    best_loc = tmp_legend._loc
     ax.grid(True, which='both', linestyle='--', alpha=0.4)
     plt.tight_layout()
 
-    if args.save:
+    if args.subslides:
+        handles, labels = ax.get_legend_handles_labels()
+
+        # Group handles by series name (text in trailing parentheses), preserving order
+        series_re = re.compile(r'\((.+)\)$')
+        series_order = []
+        series_groups = {}
+        extra = []  # handles without a series group, e.g. axhline reference lines
+        for h, l in zip(handles, labels):
+            m = series_re.search(l)
+            if m:
+                key = m.group(1)
+                if key not in series_groups:
+                    series_groups[key] = []
+                    series_order.append(key)
+                series_groups[key].append((h, l))
+            else:
+                extra.append((h, l))
+
+        base = args.save if args.save else 'plot'
+        stem, ext = os.path.splitext(base)
+        ext = ext or '.png'
+
+        for i in range(1, len(series_order) + 1):
+            visible = set(series_order[:i])
+            for h, l in zip(handles, labels):
+                m = series_re.search(l)
+                h.set_visible(not m or m.group(1) in visible)
+
+            vis_h = [h for key in series_order[:i] for h, _ in series_groups[key]]
+            vis_l = [l for key in series_order[:i] for _, l in series_groups[key]]
+            for h, l in extra:
+                vis_h.append(h)
+                vis_l.append(l)
+
+            slide_ncol = max(1, len(vis_h) // 4)
+            ax.get_legend().remove()
+            ax.legend(vis_h, vis_l, ncol=slide_ncol, fontsize='small',
+                      framealpha=0.5, loc=best_loc)
+
+            out = f'{stem}_slide{i}{ext}'
+            plt.savefig(out, dpi=300)
+            print(f'Saved {out}')
+
+        for h in handles:
+            h.set_visible(True)
+    elif args.save:
         plt.savefig(args.save, dpi=300)
         print(f'Saved to {args.save}')
     else:

@@ -91,10 +91,11 @@ for n in "${n_arr[@]}"; do
                 else
                     sed -i '/MOVEMENT_BLOCK/d' "$newfile"
                 fi
-                sed -i "s/ADAPTBL_H_SAN/${h_san}/g"   "$newfile"
-                sed -i "s/ADAPTBL_H/${h}/g"            "$newfile"
-                sed -i "s/NUMRUNS/${n}/g"              "$newfile"
-                sed -i "s/NUMMODES_VAL/${p}/g"         "$newfile"
+                sed -i "s/OUTPUT_METHOD/${method_san}/g"   "$newfile"
+                sed -i "s/ADAPTBL_H_SAN/${h_san}/g"        "$newfile"
+                sed -i "s/ADAPTBL_H/${h}/g"                "$newfile"
+                sed -i "s/NUMRUNS/${n}/g"                  "$newfile"
+                sed -i "s/NUMMODES_VAL/${p}/g"             "$newfile"
 
                 if [ "$io_checksteps" -eq 0 ]; then
                     sed -i "/IO_CHECKSTEPS/d" "$newfile"

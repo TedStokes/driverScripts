@@ -15,7 +15,6 @@ MOVEMENT_BLOCK
       <I PROPERTY="AdaptBL_surf" VALUE="102"/>
       <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
       <I PROPERTY="AdaptBL_transfer" VALUE="TRANSFER_METHOD"/>
-      <I PROPERTY="AdaptBL_interpMethod" VALUE="Shepard"/>
     </SOLVERINFO>
         <TIMEINTEGRATIONSCHEME> 
             <METHOD> RungeKutta </METHOD> 
@@ -105,13 +104,14 @@ MOVEMENT_BLOCK
 
   <FILTERS>
     <FILTER TYPE="Error">
-        <PARAM NAME="OutputFile">ErrorFile_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD</PARAM>
+        <PARAM NAME="OutputFile">ErrorFile_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_OUTPUT_METHOD</PARAM>
         <PARAM NAME="OutputFrequency">1</PARAM>
         <PARAM NAME="ConsoleOutput">0</PARAM>
     </FILTER>
     <FILTER TYPE="FieldConvert">
-      <PARAM NAME="OutputFile">sol_filt_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_TRANSFER_METHOD.vtu:vtu:highorder</PARAM>
+      <PARAM NAME="OutputFile">sol_filt_n_NUMRUNS_h_ADAPTBL_H_SAN_p_NUMMODES_VAL_m_OUTPUT_METHOD.vtu:vtu:highorder</PARAM>
       <PARAM NAME="OutputFrequency">1</PARAM>
+      <PARAM NAME="ResetCache">true</PARAM>
     </FILTER>
   </FILTERS>
 </NEKTAR>
