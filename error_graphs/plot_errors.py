@@ -83,6 +83,8 @@ def main():
                         help='Variable to distinguish lines by colour')
     parser.add_argument('--fix-n', type=int,   default=None, metavar='N',
                         help='Restrict to runs with this NumRuns value')
+    parser.add_argument('--rename-n', action='store_true',
+                        help='Relabel n as cycles (= n − 1) on axes and in legends')
     parser.add_argument('--fix-h', type=float, default=None, metavar='H',
                         help='Restrict to runs with this AdaptBL_h value')
     parser.add_argument('--fix-p', type=int,   default=None, metavar='P',
@@ -103,12 +105,20 @@ def main():
                              'Repeatable, e.g. --exclude method=ALE --exclude p=3')
     parser.add_argument('--logy', action='store_true',
                         help='Logarithmic y axis')
+    parser.add_argument('--logx', action='store_true',
+                        help='Logarithmic x axis')
     parser.add_argument('--save', metavar='FILE',
                         help='Save figure to FILE instead of displaying it')
     parser.add_argument('--subslides', action='store_true',
                         help='Generate a sequence of PNGs revealing one colour-group at a time '
                              '(stem taken from --save, or "plot" by default)')
     args = parser.parse_args()
+
+    if args.rename_n:
+        AXIS_LABELS['n'] = 'Number of adaptive cycles'
+    x_off = -1 if (args.rename_n and args.xaxis == 'n') else 0
+    color_key = 'cycles' if (args.rename_n and args.color == 'n') else args.color
+    c_disp = (lambda v: v - 1) if (args.rename_n and args.color == 'n') else (lambda v: v)
 
     # Parse --exclude specs into typed predicates
     _EXCL_TYPES = {'n': int, 'h': float, 'p': int, 'method': str}
@@ -229,13 +239,13 @@ def main():
                 data = np.loadtxt(f, skiprows=1)
                 cv = get_var(run, args.color)
 
-                label = f'{args.color} = {cv} (overall)'
+                label = f'{color_key} = {c_disp(cv)} (overall)'
                 ax.plot(data[:, 0], data[:, mcol],
                         color=color_map[cv],
                         label=label if label not in seen_labels else '_nolegend_')
                 seen_labels.add(label)
 
-                label2 = f'{args.color} = {cv} (Proj sol. transfer)'
+                label2 = f'{color_key} = {c_disp(cv)} (Proj sol. transfer)'
                 ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
                         color=color_map2[cv],
                         label=label2 if label2 not in seen_labels else '_nolegend_')
@@ -246,7 +256,7 @@ def main():
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
                 cv = get_var(run, args.color)
-                label3 = f'{args.color} = {cv} (ALE sol. transfer)'
+                label3 = f'{color_key} = {c_disp(cv)} (ALE sol. transfer)'
                 ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
                         color=color_map3[cv],
                         label=label3 if label3 not in seen_labels else '_nolegend_')
@@ -262,7 +272,7 @@ def main():
                 if args.sub_n1:
                     yvals = yvals - get_baseline(h, p)
                 mlabel = _METHOD_LABEL.get(method, method)
-                label = f'{args.color} = {cv} ({mlabel})'
+                label = f'{color_key} = {c_disp(cv)} ({mlabel})'
                 cmap_m = _METHOD_CMAP.get(method, color_map)
                 ax.plot(data[:, 0], yvals,
                         color=cmap_m[cv],
@@ -281,7 +291,7 @@ def main():
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
                 final_err = data[-1, mcol]
-                xv = get_var(run, args.xaxis)
+                xv = get_var(run, args.xaxis) + x_off
                 cv = get_var(run, args.color)
                 groups[cv].append((xv, final_err))
                 groups2[cv].append((xv, final_err - get_baseline(h, p)))
@@ -290,7 +300,7 @@ def main():
                 n, h, p, method, f = run
                 data = np.loadtxt(f, skiprows=1)
                 final_err = data[-1, mcol]
-                xv = get_var(run, args.xaxis)
+                xv = get_var(run, args.xaxis) + x_off
                 cv = get_var(run, args.color)
                 groups3[cv].append((xv, final_err - get_baseline(h, p)))
 
@@ -299,19 +309,19 @@ def main():
                 xs, ys = zip(*pts)
                 print(ys)
                 ax.plot(xs, ys, marker='o', color=color_map[cv],
-                        label=f'{args.color} = {cv} (overall)')
+                        label=f'{color_key} = {c_disp(cv)} (overall)')
 
             for cv in sorted(groups2.keys()):
                 pts = sorted(groups2[cv])
                 xs, ys = zip(*pts)
                 ax.plot(xs, ys, marker='s', color=color_map2[cv],
-                        label=f'{args.color} = {cv} (Proj sol. transfer)')
+                        label=f'{color_key} = {c_disp(cv)} (Proj sol. transfer)')
 
             for cv in sorted(groups3.keys()):
                 pts = sorted(groups3[cv])
                 xs, ys = zip(*pts)
                 ax.plot(xs, ys, marker='^', color=color_map3[cv],
-                        label=f'{args.color} = {cv} (ALE sol. transfer)')
+                        label=f'{color_key} = {c_disp(cv)} (ALE sol. transfer)')
 
         else:
             # Key by (method, cv) so KM and ALE are separate lines
@@ -323,7 +333,7 @@ def main():
                 final_err = data[-1, mcol]
                 if args.sub_n1:
                     final_err -= get_baseline(h, p)
-                xv = get_var(run, args.xaxis)
+                xv = get_var(run, args.xaxis) + x_off
                 cv = get_var(run, args.color)
                 groups[(method, cv)].append((xv, final_err))
 
@@ -337,7 +347,7 @@ def main():
                         marker=_METHOD_MARKER.get(method, 'o'),
                         linestyle=_METHOD_LS.get(method, '-'),
                         color=cmap_m[cv],
-                        label=f'{args.color} = {cv} ({mlabel})')
+                        label=f'{color_key} = {c_disp(cv)} ({mlabel})')
 
             if args.sub_n1 and args.xaxis == 'n':
                 # Draw a horizontal orange reference line at the n=1 baseline error
@@ -349,11 +359,14 @@ def main():
                 for p in sorted(seen_p):
                     bval = seen_p[p]
                     col = color_map[p] if args.color == 'p' else 'orange'
+                    ref_label = f'cycles=0 error (p={p})' if args.rename_n else f'n=1 error (p={p})'
                     ax.axhline(bval, color=col, linestyle='--', linewidth=1.5,
-                               label=f'n=1 error (p={p})', zorder=1)
+                               label=ref_label, zorder=1)
 
         if args.logy:
             ax.set_yscale('log')
+        if args.logx:
+            ax.set_xscale('log')
 
     if combine:
         base_label = METRIC_LABELS[args.metric]
@@ -365,7 +378,8 @@ def main():
     ax.set_xlabel(AXIS_LABELS[args.xaxis])
     ax.set_ylabel(ylabel)
     fixed_parts = []
-    if args.fix_n is not None: fixed_parts.append(f'n={args.fix_n}')
+    if args.fix_n is not None:
+        fixed_parts.append(f'cycles={args.fix_n - 1}' if args.rename_n else f'n={args.fix_n}')
     if args.fix_h is not None: fixed_parts.append(f'h={args.fix_h}')
     if args.fix_p is not None: fixed_parts.append(f'p={args.fix_p}')
     fixed_str = ', '.join(fixed_parts)
