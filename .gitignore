@@ -12,3 +12,10 @@ error_graphs/*
 !error_graphs/ADR_static_tmp.xml
 !error_graphs/steps.sh
 !error_graphs/plot_errors.py
+!dynamicYplus/
+dynamicYplus/*
+!dynamicYplus/session.xml
+!dynamicYplus/squarecols.xml
+!dynamicYplus/session.xml
+!dynamicYplus/fieldconvert_chks.sh
+!dynamicYplus/fieldconvert_multi.sh

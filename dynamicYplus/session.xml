@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<NEKTAR>
+  <EXPANSIONS>
+    <E COMPOSITE="C[101]" NUMMODES="5" FIELDS="u,v,p" TYPE="MODIFIED" />
+  </EXPANSIONS>
+
+  <CONDITIONS>
+    <SOLVERINFO>
+      <I PROPERTY="SolverType"                           VALUE="VelocityCorrectionScheme"   />
+      <I PROPERTY="EQTYPE"                               VALUE="UnsteadyNavierStokes"       />
+      <I PROPERTY="AdvectionForm"                        VALUE="Convective"                 />
+      <I PROPERTY="Projection"                           VALUE="Galerkin"                   />
+      <I PROPERTY="SpectralhpDealiasing"                 VALUE="True"                       />
+      <I PROPERTY="SpectralVanishingViscositySpectralHP" VALUE="True"                       />
+      <I PROPERTY="GlobalSysSoln"                        VALUE="XxtMultiLevelStaticCond"	  />
+      <I PROPERTY="Driver" VALUE="AdaptBL"/>
+      <I PROPERTY="AdaptBL_surf" VALUE="103"/>
+      <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
+      <I PROPERTY="AdaptBL_transfer" VALUE="Projection"/>
+    </SOLVERINFO>
+    <TIMEINTEGRATIONSCHEME> 
+          <METHOD> IMEX </METHOD> 
+          <ORDER> 2 </ORDER> 
+    </TIMEINTEGRATIONSCHEME>
+    <PARAMETERS>
+      <P> NumRuns = 2 </P>
+      <P> AdaptBL_nLayers = 4 </P>
+      <P> AdaptBL_h = 0.75 </P>
+      <P> AdaptBL_nq = 7 </P>
+        <P> NumQuadPointsError = 19 </P>
+      <!--General parameters-->
+      <P> TimeStep        = 1e-2      </P>
+      <P> NumSteps        = 100         </P>
+      <P> IO_InfoSteps    = 10          </P>
+      <P> IO_CFLSteps     = 10          </P>
+      <P> IO_CheckSteps   = 1           </P>
+      <P> Re              = 100       </P>
+      <P> Uinf            = 1         </P>
+      <P> Vinf            = 0   </P>
+      <P> Lref            = 2        </P>
+      <P> Kinvis          = Uinf*Lref/Re </P>
+      <P> SVVDiffCoeff    = 0.25         </P>
+      <P> SVVCutoffRatio  = 0.7          </P>
+    
+            <P> x0_dim          = 0.01                     </P> <!--[m], x for inflow boundary-->
+            <P> y2eta           = sqrt(Uinf/Kinvis/x0_dim) </P> <!--1/[m], (y+1)*y2eta=eta (wall at y=-1)-->
+            <P> etaMax          = 9.0                      </P>
+            <P> y_etaMax        = -1 + etaMax/y2eta        </P> <!--[m], physical y where eta=etaMax-->
+
+            <P> c0_u            = -7.588793192637297e-07   </P> <!--These coeff are for eta to df/deta, no need to change -->
+            <P> c1_u            = 3.194022625802455e-05    </P>
+            <P> c2_u            = -5.359224544180487e-04   </P>
+            <P> c3_u            = 0.004456471192420        </P>
+            <P> c4_u            = -0.018001543100935       </P>
+            <P> c5_u            = 0.026349808614288        </P>
+            <P> c6_u            = -0.019383436111100       </P>
+            <P> c7_u            = 0.336425284918826        </P>
+        
+            <P> c0_v            = -1.973915433977048e-06   </P>
+            <P> c1_v            = 9.301500235002117e-05    </P>
+            <P> c2_v            = -0.001775056424737       </P>
+            <P> c3_v            = 0.017278644240805        </P>
+            <P> c4_v            = -0.086928463802734       </P>
+            <P> c5_v            = 0.185965415918227        </P>
+            <P> c6_v            = -0.010699737058846       </P>
+            <P> c7_v            = 0.054417998357595        </P>
+
+
+    </PARAMETERS>
+
+    <VARIABLES>
+      <V ID="0"> u </V>
+      <V ID="1"> v </V>
+      <V ID="2"> p </V>
+    </VARIABLES>
+
+    <BOUNDARYREGIONS>
+      <B ID="0"> C[103] </B> <!-- no-slip wall -->
+      <B ID="1"> C[104] </B> <!-- outflow -->
+      <B ID="2"> C[105] </B> <!-- inflow -->
+      <B ID='3'> C[102] </B> <!-- Freestream -->
+    </BOUNDARYREGIONS>
+    <BOUNDARYCONDITIONS>
+
+      <REGION REF="0"> <!-- noslip Wall -->
+        <D VAR="u" VALUE="0" />
+        <D VAR="v" VALUE="0" />
+        <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
+      </REGION>
+
+      <REGION REF="1"> <!-- Outflow -->
+        <N VAR="u" USERDEFINEDTYPE="HOutflow" VALUE="0" />
+        <N VAR="v" USERDEFINEDTYPE="HOutflow" VALUE="0" />
+        <D VAR="p" USERDEFINEDTYPE="HOutflow" VALUE="0" />
+      </REGION>
+
+      <!--REGION REF="2">
+        <D VAR="u" VALUE="Uinf" />
+        <D VAR="v" VALUE="0" />
+        <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
+      </REGION-->
+      <REGION REF="2">
+	      <D VAR="u" VALUE="Uinf*((c0_u*((y+1)*y2eta)^8 + c1_u*((y+1)*y2eta)^7 + c2_u*((y+1)*y2eta)^6 + c3_u*((y+1)*y2eta)^5 + c4_u*((y+1)*y2eta)^4 + c5_u*((y+1)*y2eta)^3 + c6_u*((y+1)*y2eta)^2 + c7_u*((y+1)*y2eta))*(y<y_etaMax) + (y>=y_etaMax))" />
+              <D VAR="v" VALUE="0.5*Uinf*(Uinf*x0_dim/Kinvis)^(-0.5)*(c0_v*((y+1)*y2eta)^8 + c1_v*((y+1)*y2eta)^7 + c2_v*((y+1)*y2eta)^6 + c3_v*((y+1)*y2eta)^5 + c4_v*((y+1)*y2eta)^4 + c5_v*((y+1)*y2eta)^3 + c6_v*((y+1)*y2eta)^2 + c7_v*((y+1)*y2eta))*(y<y_etaMax) + Vinf*(y>=y_etaMax)" />
+		      <!--D VAR="v" VALUE="0" /-->
+		      <N VAR="p" USERDEFINEDTYPE="H" VALUE="0" />
+      </REGION>
+      
+      <REGION REF="3"> <!-- Freestream -->
+        <N VAR="u" VALUE="0" />
+        <N VAR="v" VALUE="0" />
+        <D VAR="p" VALUE="0" />
+      </REGION>
+    </BOUNDARYCONDITIONS>
+    
+    <FUNCTION NAME="InitialConditions">
+        <E VAR="u" VALUE="Uinf" />
+        <E VAR="v" VALUE="0" />
+        <E VAR="p" VALUE="0" />
+    </FUNCTION>
+    
+    <FUNCTION NAME="ExactSolution">
+        <E VAR="u" VALUE="Uinf" />
+        <E VAR="v" VALUE="0" />
+        <E VAR="p" VALUE="0" />
+    </FUNCTION>
+
+  </CONDITIONS>
+
+  <FILTERS>
+    <FILTER TYPE="FieldConvert">
+      <PARAM NAME="OutputFile">results/vtus/projection.vtu:vtu:highorder</PARAM>
+      <PARAM NAME="OutputFrequency">1</PARAM>
+      <PARAM NAME="ResetCache">true</PARAM>
+    </FILTER>
+  </FILTERS>
+</NEKTAR>
