@@ -22,6 +22,7 @@ from collections import defaultdict
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 METRIC_COL = {'u_L2': 1, 'u_Linf': 2, 'u_H1': 3}
 FILE_RE = re.compile(r'ErrorFile_n_(\d+)_h_(.+)_p_(\d+)(?:_m_(.+))?\.err$')
@@ -53,6 +54,12 @@ _METHOD_LS     = {'Projection': '-',    'ALE': '-',           'FullInterp': '-'}
 _METHOD_MARKER = {'Projection': 'o',    'ALE': 's',           'FullInterp': '^'}
 _METHOD_LABEL  = {'Projection': 'Proj', 'ALE': 'ALE',         'FullInterp': 'FullInterp'}
 _METHOD_ORDER  = {'Projection': 0,      'ALE': 1,             'FullInterp': 2}
+# Expanded labels used for --xaxis n --sub-n1, matching the --combine-both wording
+_METHOD_LABEL_FULL = {'Projection': 'Proj sol. transfer', 'ALE': 'ALE sol. transfer',
+                      'FullInterp': 'FullInterp sol. transfer'}
+# Markers for the solution-transfer series, matching the --combine-both markers
+# (overall='o', Proj sol. transfer='s', ALE sol. transfer='^')
+_METHOD_MARKER_FULL = {'Projection': 's', 'ALE': '^', 'FullInterp': 'D'}
 
 
 def parse_filename(fname):
@@ -112,6 +119,13 @@ def main():
     parser.add_argument('--subslides', action='store_true',
                         help='Generate a sequence of PNGs revealing one colour-group at a time '
                              '(stem taken from --save, or "plot" by default)')
+    parser.add_argument('--paper', action='store_true',
+                        help='Paper mode: use a smaller figure (so all elements scale up when '
+                             'embedded) and a minimal title (e.g. "16 adaptive cycles" instead '
+                             'of the full description with "(cycles=16)")')
+    parser.add_argument('--nbase2', action='store_true',
+                        help='For --xaxis n, place x ticks at the actual (power-of-two) data '
+                             'values instead of matplotlib\'s default linear ticks')
     args = parser.parse_args()
 
     if args.rename_n:
@@ -224,7 +238,7 @@ def main():
 
     _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3, 'FullInterp': color_map4}
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(5.5, 4.5) if args.paper else (8, 5))
     seen_labels = set()
 
     print(f"{len(runs)} runs:")
@@ -337,21 +351,12 @@ def main():
                 cv = get_var(run, args.color)
                 groups[(method, cv)].append((xv, final_err))
 
-            for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
-                pts = sorted(groups[(method, cv)])
-                xs, ys = zip(*pts)
-                print(ys)
-                mlabel = _METHOD_LABEL.get(method, method)
-                cmap_m = _METHOD_CMAP.get(method, color_map)
-                ax.plot(xs, ys,
-                        marker=_METHOD_MARKER.get(method, 'o'),
-                        linestyle=_METHOD_LS.get(method, '-'),
-                        color=cmap_m[cv],
-                        label=f'{color_key} = {c_disp(cv)} ({mlabel})')
-
             if args.sub_n1 and args.xaxis == 'n':
-                # Draw a horizontal orange reference line at the n=1 baseline error
-                # for each unique (h, p) combination, labelled by polynomial order.
+                # Draw a horizontal reference line at the n=1 baseline error for each
+                # unique (h, p) combination, labelled by polynomial order. Plotted
+                # before the method series so it leads the legend ordering, with the
+                # p value unbracketed to match the solution-transfer labels.
+                ref_desc = 'overall'
                 seen_p = {}  # p -> baseline value (use first h encountered per p)
                 for n, h, p, method, f in runs:
                     if p not in seen_p:
@@ -359,21 +364,45 @@ def main():
                 for p in sorted(seen_p):
                     bval = seen_p[p]
                     col = color_map[p] if args.color == 'p' else 'orange'
-                    ref_label = f'cycles=0 error (p={p})' if args.rename_n else f'n=1 error (p={p})'
                     ax.axhline(bval, color=col, linestyle='--', linewidth=1.5,
-                               label=ref_label, zorder=1)
+                               label=f'p = {p} ({ref_desc})', zorder=1)
+
+            for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
+                pts = sorted(groups[(method, cv)])
+                xs, ys = zip(*pts)
+                print(ys)
+                full_series = args.sub_n1 and args.xaxis == 'n'
+                labels_map = _METHOD_LABEL_FULL if full_series else _METHOD_LABEL
+                markers_map = _METHOD_MARKER_FULL if full_series else _METHOD_MARKER
+                mlabel = labels_map.get(method, method)
+                cmap_m = _METHOD_CMAP.get(method, color_map)
+                ax.plot(xs, ys,
+                        marker=markers_map.get(method, 'o'),
+                        linestyle=_METHOD_LS.get(method, '-'),
+                        color=cmap_m[cv],
+                        label=f'{color_key} = {c_disp(cv)} ({mlabel})')
 
         if args.logy:
             ax.set_yscale('log')
         if args.logx:
             ax.set_xscale('log')
 
-    if combine:
-        base_label = METRIC_LABELS[args.metric]
-        ylabel = f'Overall & Solution Transfer {base_label}'
-    else:
-        base_label = METRIC_LABELS[args.metric]
-        ylabel = f'Solution Transfer {base_label}' if args.sub_n1 else f'Overall {base_label}'
+        if args.nbase2 and args.xaxis == 'n':
+            # Log base-2 x axis so the power-of-two data values are evenly spaced
+            # (regular gridlines), with plain integer tick labels and no minor ticks.
+            xticks = sorted(set(get_var(run, 'n') + x_off for run in runs))
+            ax.set_xscale('log', base=2)
+            ax.xaxis.set_major_locator(mticker.FixedLocator(xticks))
+            ax.xaxis.set_major_formatter(mticker.FixedFormatter([str(int(t)) for t in xticks]))
+            ax.xaxis.set_minor_locator(mticker.NullLocator())
+
+    # if combine:
+    #     base_label = METRIC_LABELS[args.metric]
+    #     ylabel = f'{base_label}'
+    # else:
+    #     base_label = METRIC_LABELS[args.metric]
+    #     ylabel = f'Overall & Solution Transfer {base_label}' if args.sub_n1 else f'Overall {base_label}'
+    ylabel = "L2 error"
 
     ax.set_xlabel(AXIS_LABELS[args.xaxis])
     ax.set_ylabel(ylabel)
@@ -383,11 +412,21 @@ def main():
     if args.fix_h is not None: fixed_parts.append(f'h={args.fix_h}')
     if args.fix_p is not None: fixed_parts.append(f'p={args.fix_p}')
     fixed_str = ', '.join(fixed_parts)
-    ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}  ({fixed_str})')
+    if args.paper:
+        if args.fix_n is not None:
+            cycles = args.fix_n - 1 if args.rename_n else args.fix_n
+            ax.set_title(f'{cycles} adaptive cycle{"s" if cycles != 1 else ""}')
+    else:
+        ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}  ({fixed_str})')
     # ax.set_title(f'{ylabel} vs {AXIS_LABELS[args.xaxis].lower()}')
     n_legend_items = len(ax.get_legend_handles_labels()[0])
     ncol = max(1, n_legend_items // 4)
-    if combine:
+    if args.paper:
+        # Centre the legend below the figure, under the x-axis label
+        ncol = max(1, min(n_legend_items, 3))
+        tmp_legend = ax.legend(ncol=ncol, fontsize='x-small', framealpha=0.5,
+                               loc='upper center', bbox_to_anchor=(0.5, -0.2))
+    elif combine:
         tmp_legend = ax.legend(ncol=ncol, fontsize='small', framealpha=0.5, loc='best')#,
                 #   loc='upper right', bbox_to_anchor=(0.99, 0.805))
     else:
@@ -437,13 +476,13 @@ def main():
                       framealpha=0.5, loc=best_loc)
 
             out = f'{stem}_slide{i}{ext}'
-            plt.savefig(out, dpi=300)
+            plt.savefig(out, dpi=300, bbox_inches='tight' if args.paper else None)
             print(f'Saved {out}')
 
         for h in handles:
             h.set_visible(True)
     elif args.save:
-        plt.savefig(args.save, dpi=300)
+        plt.savefig(args.save, dpi=300, bbox_inches='tight' if args.paper else None)
         print(f'Saved to {args.save}')
     else:
         plt.show()
