@@ -17,6 +17,7 @@
       <I PROPERTY="AdaptBL_surf" VALUE="103"/>
       <I PROPERTY="AdaptBL_y+surf" VALUE="ALL"/>
       <I PROPERTY="AdaptBL_transfer" VALUE="Projection"/>
+      <I PROPERTY="AdaptBL_DebugOutput" VALUE="True"/>
     </SOLVERINFO>
     <TIMEINTEGRATIONSCHEME> 
           <METHOD> IMEX </METHOD> 
@@ -25,7 +26,7 @@
     <PARAMETERS>
       <P> NumRuns = 2 </P>
       <P> AdaptBL_nLayers = 4 </P>
-      <P> AdaptBL_h = 0.75 </P>
+      <P> AdaptBL_h_init = 0.35 </P>
       <P> AdaptBL_nq = 7 </P>
         <P> NumQuadPointsError = 19 </P>
       <!--General parameters-->
