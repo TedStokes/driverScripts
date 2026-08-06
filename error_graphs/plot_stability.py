@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Heatmap of final u error over the (minimum layer height, advection velocity) plane.
+Heatmap of final u error against advection velocity and one of the two sweep
+parameters: minimum layer height (fix n, --fix-n) or number of adaptive runs
+(fix h, --fix-h). Exactly one of the two must be fixed; the other becomes the
+x-axis.
 
 Runs are produced by stability_steps.sh, which writes an .err file plus a .status
 sidecar holding the solver exit code. A non-zero exit code means the solver hit
@@ -25,6 +28,10 @@ Examples:
   # ALE solution transfer over 16 adaptive runs
   python plot_stability.py --fix-n 16 --fix-p 5 --method ALE \
       --title "ALE solution transfer" --save heat_ale.png
+
+  # Number of adaptive runs along the x-axis, at a fixed layer height
+  python plot_stability.py --fix-h 0.1 --fix-p 5 --method ALE \
+      --title "ALE solution transfer, h=0.1" --save heat_h0dot1_ale.png
 
 Pass a shared --vmin/--vmax to all three so the colour scales are comparable;
 the script prints the data range it found to help you choose them.
@@ -153,17 +160,30 @@ def read_run(errfile, mcol, stat='peak'):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Heatmap of final error vs advection velocity and minimum layer height.',
+        description='Heatmap of final error vs advection velocity and either '
+                    'minimum layer height (--fix-n) or number of adaptive runs (--fix-h).',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument('--fix-n', type=int, required=True, metavar='N',
-                        help='NumRuns value to plot')
+    parser.add_argument('--fix-n', type=int, default=None, metavar='N',
+                        help='NumRuns value to plot; layer height goes on the x-axis')
+    parser.add_argument('--fix-h', type=float, default=None, metavar='H',
+                        help='AdaptBL_h_init value to plot; NumRuns goes on the x-axis')
     parser.add_argument('--fix-p', type=int, required=True, metavar='P',
                         help='NUMMODES value to plot')
     parser.add_argument('--method', default='Projection',
                         help='AdaptBL_transfer method to plot (default: Projection). '
                              'Irrelevant to the solver when n=1, but still part of the filename.')
+    parser.add_argument('--x-values', default=None, metavar='LIST',
+                        help='Comma-separated subset of x-axis values to plot, e.g. '
+                             '"1,2,3,4,5". Default: every value found on disk.')
+    parser.add_argument('--advy-range', default=None, metavar='MIN,MAX',
+                        help='Restrict the y-axis to advection velocities in [MIN, MAX], '
+                             'e.g. "=-1.5,1.5". Default: every value found on disk. '
+                             'Note the "=" - argparse reads a leading minus as a flag.')
+    parser.add_argument('--advy-values', default=None, metavar='LIST',
+                        help='Comma-separated subset of advection velocities to plot. '
+                             'Combines with --advy-range; a row must satisfy both.')
     parser.add_argument('--results-dir', default='results_stability', metavar='DIR',
                         help='Directory containing .err/.status files (default: results_stability)')
     parser.add_argument('--metric', choices=list(METRIC_COL), default='u_L2',
@@ -188,6 +208,46 @@ def main():
                         help='Save figure to FILE instead of displaying it')
     args = parser.parse_args()
 
+    if (args.fix_n is None) == (args.fix_h is None):
+        sys.exit('Give exactly one of --fix-n (layer height on the x-axis) '
+                 'or --fix-h (number of adaptive runs on the x-axis)')
+    # Whichever of h/n is not pinned becomes the x-axis.
+    x_is_n = args.fix_n is None
+
+    x_filter = None
+    if args.x_values is not None:
+        try:
+            x_filter = [int(s) if x_is_n else float(s)
+                        for s in args.x_values.split(',') if s.strip()]
+        except ValueError:
+            sys.exit(f'--x-values must be a comma-separated list of '
+                     f'{"integers" if x_is_n else "numbers"} (got {args.x_values!r})')
+
+    def keep_x(x):
+        return x_filter is None or any(np.isclose(x, t) for t in x_filter)
+
+    advy_lo, advy_hi = -np.inf, np.inf
+    if args.advy_range is not None:
+        try:
+            advy_lo, advy_hi = (float(s) for s in args.advy_range.split(','))
+        except ValueError:
+            sys.exit(f'--advy-range must be MIN,MAX (got {args.advy_range!r})')
+        if advy_hi < advy_lo:
+            sys.exit(f'--advy-range MAX ({advy_hi}) must not be below MIN ({advy_lo})')
+
+    advy_filter = None
+    if args.advy_values is not None:
+        try:
+            advy_filter = [float(s) for s in args.advy_values.split(',') if s.strip()]
+        except ValueError:
+            sys.exit(f'--advy-values must be a comma-separated list of numbers '
+                     f'(got {args.advy_values!r})')
+
+    def keep_advy(v):
+        if not advy_lo - 1e-9 <= v <= advy_hi + 1e-9:
+            return False
+        return advy_filter is None or any(np.isclose(v, t) for t in advy_filter)
+
     mcol = METRIC_COL[args.metric]
 
     pattern = os.path.join(args.results_dir, 'ErrorFile_v_*_h_*_n_*_p_*_m_*.err')
@@ -195,35 +255,46 @@ def main():
     if not all_files:
         sys.exit(f'No error files found matching {pattern}')
 
-    # cell[(advy, h)] -> (value, exploded)
+    # cell[(advy, x)] -> (value, exploded), where x is h or n per x_is_n.
     cells = {}
     for f in all_files:
         params = parse_filename(f)
         if params is None:
             continue
         advy, h, n, p, method = params
-        if n != args.fix_n or p != args.fix_p or method != args.method:
+        if p != args.fix_p or method != args.method or not keep_advy(advy):
             continue
-        cells[(advy, h)] = read_run(f, mcol, args.stat)
+        if x_is_n:
+            if not np.isclose(h, args.fix_h):
+                continue
+            x = n
+        else:
+            if n != args.fix_n:
+                continue
+            x = h
+        if not keep_x(x):
+            continue
+        cells[(advy, x)] = read_run(f, mcol, args.stat)
 
+    fixed_desc = (f'h={args.fix_h:g}' if x_is_n else f'n={args.fix_n}')
     if not cells:
-        sys.exit(f'No runs matched n={args.fix_n}, p={args.fix_p}, method={args.method}')
+        sys.exit(f'No runs matched {fixed_desc}, p={args.fix_p}, method={args.method}')
 
-    h_vals    = sorted({h for _, h in cells})
+    x_vals    = sorted({x for _, x in cells})
     advy_vals = sorted({v for v, _ in cells})
 
-    grid     = np.full((len(advy_vals), len(h_vals)), np.nan)
+    grid     = np.full((len(advy_vals), len(x_vals)), np.nan)
     exploded = np.zeros_like(grid, dtype=bool)
     present  = np.zeros_like(grid, dtype=bool)
 
-    for (advy, h), (val, boom) in cells.items():
-        i, j = advy_vals.index(advy), h_vals.index(h)
+    for (advy, x), (val, boom) in cells.items():
+        i, j = advy_vals.index(advy), x_vals.index(x)
         present[i, j] = True
         exploded[i, j] = boom
         if val is not None:
             grid[i, j] = val
 
-    # Peak wall-normal mesh speed per h column. It is set purely by the r-ramp
+    # Peak wall-normal mesh speed per column. It is set purely by the r-ramp
     # geometry and so does not depend on advy - but a run that aborted early
     # logged fewer cycles, so take the extreme over every run in the column.
     gridvel = {}
@@ -231,14 +302,23 @@ def main():
         m = LOG_RE.match(os.path.basename(logfile))
         if not m:
             continue
-        if (int(m.group(3)) != args.fix_n or int(m.group(4)) != args.fix_p
-                or m.group(5) != args.method):
+        if int(m.group(4)) != args.fix_p or m.group(5) != args.method:
+            continue
+        h, n = unsanitise(m.group(2)), int(m.group(3))
+        if x_is_n:
+            if not np.isclose(h, args.fix_h):
+                continue
+            x = n
+        else:
+            if n != args.fix_n:
+                continue
+            x = h
+        if not keep_x(x):
             continue
         v = read_gridvel(logfile)
         if v is None:
             continue
-        h = unsanitise(m.group(2))
-        gridvel[h] = min(gridvel.get(h, v), v)
+        gridvel[x] = min(gridvel.get(x, v), v)
 
     n_ok = int(np.isfinite(grid).sum())
     n_boom = int(exploded.sum())
@@ -259,7 +339,7 @@ def main():
 
     # Fixed axes box: ncols x nrows cells of an exact size in inches.
     cell_w = CELL_W * (0.72 if args.paper else 1.0)
-    ax_w = len(h_vals) * cell_w
+    ax_w = len(x_vals) * cell_w
     ax_h = len(advy_vals) * cell_w * CELL_ASPECT
     fig = plt.figure(figsize=(MARGIN_L + ax_w + MARGIN_R,
                               MARGIN_B + ax_h + MARGIN_T))
@@ -272,7 +352,7 @@ def main():
     cmap = plt.get_cmap(args.cmap).copy()
     cmap.set_bad(MISSING_COLOR)
 
-    xs = np.arange(len(h_vals))
+    xs = np.arange(len(x_vals))
     ys = np.arange(len(advy_vals))
     mesh = ax.pcolormesh(xs, ys, np.ma.masked_invalid(grid),
                          cmap=cmap, norm=LogNorm(vmin=vmin, vmax=vmax),
@@ -289,7 +369,7 @@ def main():
 
     if args.annotate:
         for i in range(len(advy_vals)):
-            for j in range(len(h_vals)):
+            for j in range(len(x_vals)):
                 if exploded[i, j] or not np.isfinite(grid[i, j]):
                     continue
                 # Contrast against whatever the colormap actually put in the cell.
@@ -300,10 +380,11 @@ def main():
                         color='#222222' if lum > 0.55 else 'white')
 
     ax.set_xticks(xs)
-    ax.set_xticklabels([f'{h:g}' for h in h_vals])
+    ax.set_xticklabels([f'{x:g}' for x in x_vals])
     ax.set_yticks(ys)
     ax.set_yticklabels([f'{v:g}' for v in advy_vals])
-    ax.set_xlabel('Minimum layer height (h)')
+    ax.set_xlabel('Number of adaptive runs (n)' if x_is_n
+                  else 'Minimum layer height (h)')
     ax.set_ylabel('Advection velocity (advy)')
 
     # ALE runs log their mesh motion, so label each column with it. Columns are
@@ -312,12 +393,12 @@ def main():
         secax = ax.secondary_xaxis('top')
         secax.set_xticks(xs)
         secax.set_xticklabels(
-            [f'{gridvel[h]:.3g}' if h in gridvel else '-' for h in h_vals])
+            [f'{gridvel[x]:.3g}' if x in gridvel else '-' for x in x_vals])
         secax.set_xlabel('Peak grid velocity ($v_y$, minimum over cycles)')
-        missing = [h for h in h_vals if h not in gridvel]
+        missing = [x for x in x_vals if x not in gridvel]
         if missing:
-            print(f'no grid velocity logged for h = '
-                  f'{", ".join(f"{h:g}" for h in missing)}')
+            print(f'no grid velocity logged for {"n" if x_is_n else "h"} = '
+                  f'{", ".join(f"{x:g}" for x in missing)}')
 
     # Clear the secondary axis and its label when one is present.
     title_pad = 32 if gridvel else None
@@ -325,7 +406,7 @@ def main():
         ax.set_title(args.title, pad=title_pad)
     else:
         ax.set_title(f'{METRIC_LABELS[args.metric]}  '
-                     f'(n={args.fix_n}, p={args.fix_p}, {args.method})',
+                     f'({fixed_desc}, p={args.fix_p}, {args.method})',
                      pad=title_pad)
 
     # Values can sit outside the fixed scale, so flag which ends are clipped.
@@ -344,7 +425,7 @@ def main():
     cbar = fig.colorbar(mesh, cax=cax, extend=extend)
     cbar.set_label(f'{args.stat.capitalize()} {METRIC_LABELS[args.metric]}')
 
-    ax.set_xlim(-0.5, len(h_vals) - 0.5)
+    ax.set_xlim(-0.5, len(x_vals) - 0.5)
     ax.set_ylim(-0.5, len(advy_vals) - 0.5)
 
     if args.save:

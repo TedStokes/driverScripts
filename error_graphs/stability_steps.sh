@@ -1,12 +1,15 @@
 #!/bin/bash
 
 usage() {
-    echo "Usage: $0 [-j <max_jobs>] [-q] [-s] [-T <timestep>] [-N <numsteps>] <advy_values> <h_values> <n_values> <p_values> [<method_values>]"
+    echo "Usage: $0 [-j <max_jobs>] [-q] [-s] [-T <timestep>] [-N <numsteps>] [-o <dir>] <advy_values> <h_values> <n_values> <p_values> [<method_values>]"
     echo "  -j max_jobs:     max parallel solver jobs (default: 1)"
     echo "  -q:              suppress solver output (still prints which run is starting)"
-    echo "  -s:              skip runs whose .status file already exists in results_stability/"
+    echo "  -s:              skip runs whose .status file already exists in the results dir"
     echo "  -T timestep:     TimeStep value (default: 0.01)"
     echo "  -N numsteps:     NumSteps value per run (default: 20)"
+    echo "  -o dir:          results directory (default: results_stability). Filenames do"
+    echo "                   not encode -T/-N, so give a separate dir when changing them"
+    echo "                   or the previous sweep's results are overwritten."
     echo "  advy_values:     comma-separated advy values        (e.g. \"0.5,1,2,4,8\")"
     echo "  h_values:        comma-separated AdaptBL_h_init     (e.g. \"0.2,0.1,0.05\")"
     echo "  n_values:        comma-separated NumRuns values     (e.g. \"1,16\")"
@@ -22,13 +25,15 @@ quiet=0
 skip_existing=0
 timestep=0.01
 numsteps=20
-while getopts "j:qsT:N:" opt; do
+resdir="results_stability"
+while getopts "j:qsT:N:o:" opt; do
     case $opt in
         j) max_jobs="$OPTARG" ;;
         q) quiet=1 ;;
         s) skip_existing=1 ;;
         T) timestep="$OPTARG" ;;
         N) numsteps="$OPTARG" ;;
+        o) resdir="$OPTARG" ;;
         *) usage; exit 1 ;;
     esac
 done
@@ -56,7 +61,6 @@ IFS=',' read -ra n_arr      <<< "$n_values"
 IFS=',' read -ra p_arr      <<< "$p_values"
 IFS=',' read -ra method_arr <<< "$method_values"
 
-resdir="results_stability"
 mkdir -p "$resdir"
 
 # Filename-safe form of a float: 0.05 -> 0dot05, -2.5 -> m2dot5
@@ -86,6 +90,10 @@ for advy in "${advy_arr[@]}"; do
 
                     cp ADR_stability_tmp.xml "$newfile"
 
+                    # Must come first: the Error filter writes the .err file itself,
+                    # so this is what actually honours -o. Piped delimiter because
+                    # resdir may contain slashes.
+                    sed -i "s|RESDIR|${resdir}|g"          "$newfile"
                     sed -i "s/TRANSFER_METHOD/${method}/g" "$newfile"
                     if [[ "$method" == "ALE" ]]; then
                         sed -i 's|MOVEMENT_BLOCK|  <MOVEMENT>\n    <ZONES>\n      <CALLBACK ID="0" DOMAIN="D[0]" />\n    </ZONES>\n  </MOVEMENT>|' "$newfile"

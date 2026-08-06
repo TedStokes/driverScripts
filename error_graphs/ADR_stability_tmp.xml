@@ -85,7 +85,7 @@ MOVEMENT_BLOCK
 
   <FILTERS>
     <FILTER TYPE="Error">
-        <PARAM NAME="OutputFile">results_stability/ErrorFile_v_ADVY_SAN_h_ADAPTBL_H_SAN_n_NUMRUNS_p_NUMMODES_VAL_m_OUTPUT_METHOD</PARAM>
+        <PARAM NAME="OutputFile">RESDIR/ErrorFile_v_ADVY_SAN_h_ADAPTBL_H_SAN_n_NUMRUNS_p_NUMMODES_VAL_m_OUTPUT_METHOD</PARAM>
         <PARAM NAME="OutputFrequency">1</PARAM>
         <PARAM NAME="ConsoleOutput">0</PARAM>
     </FILTER>
