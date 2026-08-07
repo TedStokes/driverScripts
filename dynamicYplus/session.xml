@@ -11,7 +11,7 @@
       <I PROPERTY="AdvectionForm"                        VALUE="Convective"                 />
       <I PROPERTY="Projection"                           VALUE="Galerkin"                   />
       <I PROPERTY="SpectralhpDealiasing"                 VALUE="True"                       />
-      <I PROPERTY="SpectralVanishingViscositySpectralHP" VALUE="True"                       />
+      <I PROPERTY="SpectralVanishingViscositySpectralHP" VALUE="DGKernel"                       />
       <I PROPERTY="GlobalSysSoln"                        VALUE="XxtMultiLevelStaticCond"	  />
       <I PROPERTY="Driver" VALUE="AdaptBL"/>
       <I PROPERTY="AdaptBL_surf" VALUE="103"/>
@@ -26,7 +26,7 @@
     <PARAMETERS>
       <P> NumRuns = 2 </P>
       <P> AdaptBL_nLayers = 4 </P>
-      <P> AdaptBL_h_init = 0.35 </P>
+      <P> AdaptBL_h_init = 0.01 </P>
       <P> AdaptBL_nq = 7 </P>
         <P> NumQuadPointsError = 19 </P>
       <!--General parameters-->
