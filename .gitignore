@@ -15,6 +15,9 @@ error_graphs/*
 !error_graphs/ADR_stability_tmp.xml
 !error_graphs/stability_steps.sh
 !error_graphs/plot_stability.py
+!error_graphs/square*.xml
+!error_graphs/square*.geo
+!error_graphs/square*.mcf
 !dynamicYplus/
 dynamicYplus/*
 !dynamicYplus/session.xml

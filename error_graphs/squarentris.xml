@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<NEKTAR>
+    <GEOMETRY DIM="2" SPACE="2">
+        <VERTEX>
+            <V ID="0">-1.00000000e+00 -1.00000000e+00 0.00000000e+00</V>
+            <V ID="1">1.00000000e+00 -1.00000000e+00 0.00000000e+00</V>
+            <V ID="2">1.00000000e+00 1.00000000e+00 0.00000000e+00</V>
+            <V ID="3">-1.00000000e+00 1.00000000e+00 0.00000000e+00</V>
+            <V ID="4">-1.00000000e+00 2.00000000e+00 0.00000000e+00</V>
+            <V ID="5">1.00000000e+00 2.00000000e+00 0.00000000e+00</V>
+        </VERTEX>
+        <EDGE>
+            <E ID="0">0 1</E>
+            <E ID="1">1 2</E>
+            <E ID="2">2 3</E>
+            <E ID="3">3 0</E>
+            <E ID="4">4 3</E>
+            <E ID="5">2 4</E>
+            <E ID="6">2 5</E>
+            <E ID="7">5 4</E>
+        </EDGE>
+        <ELEMENT>
+            <T ID="1">4 2 5</T>
+            <T ID="2">6 7 5</T>
+            <Q ID="0">0 1 2 3</Q>
+        </ELEMENT>
+        <CURVED>
+            <E ID="0" EDGEID="0" NUMPOINTS="6" TYPE="GaussLobattoLegendre">-1.00000000e+00 -1.00000000e+00 0.00000000e+00   -7.65055324e-01 -1.00000000e+00 0.00000000e+00   -2.85231516e-01 -1.00000000e+00 0.00000000e+00   2.85231516e-01 -1.00000000e+00 0.00000000e+00   7.65055324e-01 -1.00000000e+00 0.00000000e+00   1.00000000e+00 -1.00000000e+00 0.00000000e+00   </E>
+            <E ID="1" EDGEID="2" NUMPOINTS="6" TYPE="GaussLobattoLegendre">1.00000000e+00 1.00000000e+00 0.00000000e+00   7.65055324e-01 1.00000000e+00 0.00000000e+00   2.85231516e-01 1.00000000e+00 0.00000000e+00   -2.85231516e-01 1.00000000e+00 0.00000000e+00   -7.65055324e-01 1.00000000e+00 0.00000000e+00   -1.00000000e+00 1.00000000e+00 0.00000000e+00   </E>
+            <E ID="2" EDGEID="4" NUMPOINTS="6" TYPE="GaussLobattoLegendre">-1.00000000e+00 2.00000000e+00 0.00000000e+00   -1.00000000e+00 1.88252766e+00 0.00000000e+00   -1.00000000e+00 1.64261576e+00 0.00000000e+00   -1.00000000e+00 1.35738424e+00 0.00000000e+00   -1.00000000e+00 1.11747234e+00 0.00000000e+00   -1.00000000e+00 1.00000000e+00 0.00000000e+00   </E>
+            <E ID="3" EDGEID="5" NUMPOINTS="6" TYPE="GaussLobattoLegendre">1.00000000e+00 1.00000000e+00 0.00000000e+00   7.65055324e-01 1.11747234e+00 0.00000000e+00   2.85231516e-01 1.35738424e+00 0.00000000e+00   -2.85231516e-01 1.64261576e+00 0.00000000e+00   -7.65055324e-01 1.88252766e+00 0.00000000e+00   -1.00000000e+00 2.00000000e+00 0.00000000e+00   </E>
+            <E ID="4" EDGEID="6" NUMPOINTS="6" TYPE="GaussLobattoLegendre">1.00000000e+00 1.00000000e+00 0.00000000e+00   1.00000000e+00 1.11747234e+00 0.00000000e+00   1.00000000e+00 1.35738424e+00 0.00000000e+00   1.00000000e+00 1.64261576e+00 0.00000000e+00   1.00000000e+00 1.88252766e+00 0.00000000e+00   1.00000000e+00 2.00000000e+00 0.00000000e+00   </E>
+            <E ID="5" EDGEID="7" NUMPOINTS="6" TYPE="GaussLobattoLegendre">1.00000000e+00 2.00000000e+00 0.00000000e+00   7.65055324e-01 2.00000000e+00 0.00000000e+00   2.85231516e-01 2.00000000e+00 0.00000000e+00   -2.85231516e-01 2.00000000e+00 0.00000000e+00   -7.65055324e-01 2.00000000e+00 0.00000000e+00   -1.00000000e+00 2.00000000e+00 0.00000000e+00   </E>
+        </CURVED>
+        <COMPOSITE>
+            <C ID="1"> E[0] </C>
+            <C ID="2"> E[6,1] </C>
+            <C ID="3"> E[7] </C>
+            <C ID="4"> E[3-4] </C>
+            <C ID="100"> T[1-2] </C>
+            <C ID="101"> Q[0] </C>
+        </COMPOSITE>
+        <DOMAIN>
+            <D ID="0"> C[100] </D>
+            <D ID="1"> C[101] </D>
+        </DOMAIN>
+    </GEOMETRY>
+    <Metadata>
+        <Provenance>
+            <GitBranch>refs/heads/master</GitBranch>
+            <GitSHA1>6a69a8f466c715c491c949fafedc18f3e79c874a</GitSHA1>
+            <Hostname>nmslap008465</Hostname>
+            <NektarVersion>5.9.0</NektarVersion>
+            <Timestamp>20-May-2026 15:25:03</Timestamp>
+        </Provenance>
+        <NekMeshCommandLine>squarentris.mcf squarentris.xml:xml:uncompress -f </NekMeshCommandLine>
+        <NekMeshMCF>
+            <MESHING>
+                <INFORMATION>
+                    <I PROPERTY="CADFile" VALUE="squarentris.geo" />
+                    <I PROPERTY="MeshType" VALUE="2DBndLayer" />
+                </INFORMATION>
+                <PARAMETERS>
+                    <P PARAM="MinDelta" VALUE="2" />
+                    <P PARAM="MaxDelta" VALUE="3" />
+                    <P PARAM="EPS" VALUE="0.01" />
+                    <P PARAM="Order" VALUE="5" />
+                    <P PARAM="BndLayerSurfaces" VALUE="1" />
+                    <P PARAM="BndLayerThickness" VALUE="2" />
+                    <P PARAM="BndLayerLayers" VALUE="1" />
+                    <P PARAM="BndLayerProgression" VALUE="1" />
+                </PARAMETERS>
+            </MESHING>
+        </NekMeshMCF>
+    </Metadata>
+    <EXPANSIONS>
+        <E COMPOSITE="C[100]" NUMMODES="4" TYPE="MODIFIED" FIELDS="u" />
+        <E COMPOSITE="C[101]" NUMMODES="4" TYPE="MODIFIED" FIELDS="u" />
+    </EXPANSIONS>
+</NEKTAR>

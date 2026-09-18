@@ -1,12 +1,20 @@
 #!/bin/bash
 
 usage() {
-    echo "Usage: $0 [-j <max_jobs>] [-q] [-s] [-T <timestep>] [-N <numsteps>] [-o <dir>] <advy_values> <h_values> <n_values> <p_values> [<method_values>]"
+    echo "Usage: $0 [-j <max_jobs>] [-q] [-s] [-T <timestep>] [-N <numsteps>] [-P <x|y|xy>] [-V] [-o <dir>] <advy_values> <h_values> <n_values> <p_values> [<method_values>]"
     echo "  -j max_jobs:     max parallel solver jobs (default: 1)"
     echo "  -q:              suppress solver output (still prints which run is starting)"
     echo "  -s:              skip runs whose .status file already exists in the results dir"
     echo "  -T timestep:     TimeStep value (default: 0.01)"
     echo "  -N numsteps:     NumSteps value per run (default: 20)"
+    echo "  -P dirs:         make the domain periodic in x, y or xy (default: Dirichlet"
+    echo "                   exact-solution BCs on all sides). Uses squarecols_periodic.xml,"
+    echo "                   whose boundary composites are ordered so that opposite edges"
+    echo "                   pair up (see the top of this script). Filenames do not encode"
+    echo "                   this either, so use a separate -o dir."
+    echo "  -V:              also write a high-order vtu per timestep via a FieldConvert"
+    echo "                   filter, into <dir>/vtus/sol_<run>_<step>_fc.vtu. Slow and"
+    echo "                   bulky for long sweeps; meant for eyeballing single runs."
     echo "  -o dir:          results directory (default: results_stability). Filenames do"
     echo "                   not encode -T/-N, so give a separate dir when changing them"
     echo "                   or the previous sweep's results are overwritten."
@@ -25,14 +33,18 @@ quiet=0
 skip_existing=0
 timestep=0.01
 numsteps=20
+periodic=""
+fcfilter=0
 resdir="results_stability"
-while getopts "j:qsT:N:o:" opt; do
+while getopts "j:qsT:N:P:Vo:" opt; do
     case $opt in
         j) max_jobs="$OPTARG" ;;
         q) quiet=1 ;;
         s) skip_existing=1 ;;
         T) timestep="$OPTARG" ;;
         N) numsteps="$OPTARG" ;;
+        P) periodic="$OPTARG" ;;
+        V) fcfilter=1 ;;
         o) resdir="$OPTARG" ;;
         *) usage; exit 1 ;;
     esac
@@ -50,9 +62,33 @@ n_values=$3
 p_values=$4
 method_values="${5:-Projection}"
 
+case "$periodic" in
+    ""|x|y|xy|yx) ;;
+    *) echo "Error: -P must be one of x, y, xy (got '$periodic')."; exit 1 ;;
+esac
+
 if [ ! -f "ADR_stability_tmp.xml" ]; then
     echo "Error: ADR_stability_tmp.xml not found."
     exit 1
+fi
+
+# Nektar pairs periodic edges by their order within the boundary composite, and
+# in squarecols.xml the top and bottom lists are in different x order - running
+# periodic on it silently gives a wrong (much larger) error. The aligned mesh
+# was made with the master-branch NekMesh ($NK1's build has no peralign module):
+#   $MNK/NekMesh-g -m peralign:surf1=102:surf2=103:dir=y \
+#                  -m peralign:surf1=104:surf2=105:dir=x \
+#                  squarecols.xml squarecols_periodic.xml:xml:uncompress -f
+mesh="squarecols.xml"
+if [ -n "$periodic" ]; then
+    mesh="squarecols_periodic.xml"
+    if [ ! -f "$mesh" ]; then
+        echo "Error: -P given but $mesh not found (regenerate it with NekMesh peralign;"
+        echo "       see the comment in this script). squarecols.xml is NOT edge-aligned."
+        exit 1
+    fi
+    echo "NOTE: periodic mode (-P $periodic) - using $mesh, not squarecols.xml,"
+    echo "      because periodic edges must be paired in composite order."
 fi
 
 IFS=',' read -ra advy_arr   <<< "$advy_values"
@@ -62,6 +98,9 @@ IFS=',' read -ra p_arr      <<< "$p_values"
 IFS=',' read -ra method_arr <<< "$method_values"
 
 mkdir -p "$resdir"
+if [ "$fcfilter" -eq 1 ]; then
+    mkdir -p "$resdir/vtus"
+fi
 
 # Filename-safe form of a float: 0.05 -> 0dot05, -2.5 -> m2dot5
 sanitise() {
@@ -90,6 +129,14 @@ for advy in "${advy_arr[@]}"; do
 
                     cp ADR_stability_tmp.xml "$newfile"
 
+                    # Before any placeholder substitution, so RESDIR and the run
+                    # placeholders inside the block get filled in too.
+                    if [ "$fcfilter" -eq 1 ]; then
+                        sed -i 's|FIELDCONVERT_BLOCK|    <FILTER TYPE="FieldConvert">\n      <PARAM NAME="OutputFile">RESDIR/vtus/sol_v_ADVY_SAN_h_ADAPTBL_H_SAN_n_NUMRUNS_p_NUMMODES_VAL_m_OUTPUT_METHOD.vtu:vtu:highorder</PARAM>\n      <PARAM NAME="OutputFrequency">1</PARAM>\n      <PARAM NAME="ResetCache">true</PARAM>\n    </FILTER>|' "$newfile"
+                    else
+                        sed -i '/FIELDCONVERT_BLOCK/d' "$newfile"
+                    fi
+
                     # Must come first: the Error filter writes the .err file itself,
                     # so this is what actually honours -o. Piped delimiter because
                     # resdir may contain slashes.
@@ -100,6 +147,15 @@ for advy in "${advy_arr[@]}"; do
                     else
                         sed -i '/MOVEMENT_BLOCK/d' "$newfile"
                     fi
+                    # Periodic BCs: swap each tagged Dirichlet line for a periodic
+                    # condition pointing at the opposite region, then strip tags.
+                    for dir in x y; do
+                        if [[ "$periodic" == *"$dir"* ]]; then
+                            DIR=${dir^^}
+                            sed -i "s|^.*<!-- PERIODIC_${DIR}:\([0-9]*\) -->\$|        <P VAR=\"u\" VALUE=\"[\1]\" />|" "$newfile"
+                        fi
+                    done
+                    sed -i 's| *<!-- PERIODIC_[XY]:[0-9]* -->||' "$newfile"
                     sed -i "s/OUTPUT_METHOD/${method}/g"        "$newfile"
                     sed -i "s/ADVY_SAN/${advy_san}/g"           "$newfile"
                     sed -i "s/ADVY/${advy}/g"                   "$newfile"
@@ -111,15 +167,15 @@ for advy in "${advy_arr[@]}"; do
                     sed -i "s/NUMSTEPS_VAL/${numsteps}/g"       "$newfile"
 
                     echo
-                    echo "=== Starting: advy=${advy}, h_init=${h}, NumRuns=${n}, NUMMODES=${p}, method=${method} ==="
+                    echo "=== Starting: advy=${advy}, h_init=${h}, NumRuns=${n}, NUMMODES=${p}, method=${method}${periodic:+, periodic=${periodic}} ==="
                     if [ "$quiet" -eq 0 ]; then
-                        echo "  $NK1/ADRSolver-g squarecols.xml $newfile --force-output"
+                        echo "  $NK1/ADRSolver-g $mesh $newfile --force-output"
                     fi
 
                     (
                         # Never let an exploding run abort the sweep: capture the exit
                         # code and record it next to the .err file.
-                        $NK1/ADRSolver-g squarecols.xml "$newfile" --force-output > "$log" 2>&1
+                        $NK1/ADRSolver-g "$mesh" "$newfile" --force-output > "$log" 2>&1
                         rc=$?
                         echo "$rc" > "${stem}.status"
                         if [ "$quiet" -eq 1 ]; then

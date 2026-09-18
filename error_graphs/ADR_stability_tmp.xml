@@ -30,7 +30,7 @@ MOVEMENT_BLOCK
           <P> NumSteps        = NUMSTEPS_VAL       </P>
           <P> advx            = 0.0               </P>
           <P> advy            = ADVY              </P>
-          <P> k               = 2*PI * 1.25              </P>
+          <P> k               = 2*PI                     </P>
     </PARAMETERS>
 
     <VARIABLES>
@@ -44,24 +44,27 @@ MOVEMENT_BLOCK
       <B ID="3"> C[105]  </B>
     </BOUNDARYREGIONS>
     <BOUNDARYCONDITIONS>
+      <!-- PERIODIC_<dir>:<ref> tags: stability_steps.sh -P replaces the whole
+           line with a periodic condition pointing at region <ref>. Keep each
+           Dirichlet condition on one line so that replacement works. -->
+      <!-- top (y=1) -->
       <REGION REF="0">
-        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*x)" />
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent" VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" /> <!-- PERIODIC_Y:1 -->
       </REGION>
 
+      <!-- bottom (y=-1) -->
       <REGION REF="1">
-        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*x)" />
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent" VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" /> <!-- PERIODIC_Y:0 -->
       </REGION>
 
+      <!-- right (x=1) -->
       <REGION REF="2">
-        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*x)" />
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent" VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" /> <!-- PERIODIC_X:3 -->
       </REGION>
 
+      <!-- left (x=-1) -->
       <REGION REF="3">
-        <D VAR="u" USERDEFINEDTYPE="TimeDependent"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*x)" />
+        <D VAR="u" USERDEFINEDTYPE="TimeDependent" VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" /> <!-- PERIODIC_X:2 -->
       </REGION>
 
     </BOUNDARYCONDITIONS>
@@ -73,12 +76,12 @@ MOVEMENT_BLOCK
 
     <FUNCTION NAME="ExactSolution">
         <E VAR="u"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" />
     </FUNCTION>
 
     <FUNCTION NAME="InitialConditions">
         <E VAR="u"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*x)" />
+            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" />
     </FUNCTION>
 
   </CONDITIONS>
@@ -89,5 +92,6 @@ MOVEMENT_BLOCK
         <PARAM NAME="OutputFrequency">1</PARAM>
         <PARAM NAME="ConsoleOutput">0</PARAM>
     </FILTER>
+FIELDCONVERT_BLOCK
   </FILTERS>
 </NEKTAR>
