@@ -1,7 +1,7 @@
 #!/bin/bash
 
 usage() {
-    echo "Usage: $0 [-j <max_jobs>] [-q] [-s] [-T <timestep>] [-N <numsteps>] [-P <x|y|xy>] [-V] [-o <dir>] <advy_values> <h_values> <n_values> <p_values> [<method_values>]"
+    echo "Usage: $0 [-j <max_jobs>] [-q] [-s] [-T <timestep>] [-N <numsteps>] [-P <x|y|xy>] [-H [<sigma>]] [-S] [-V] [-o <dir>] <advy_values> <h_values> <n_values> <p_values> [<method_values>]"
     echo "  -j max_jobs:     max parallel solver jobs (default: 1)"
     echo "  -q:              suppress solver output (still prints which run is starting)"
     echo "  -s:              skip runs whose .status file already exists in the results dir"
@@ -12,6 +12,15 @@ usage() {
     echo "                   whose boundary composites are ordered so that opposite edges"
     echo "                   pair up (see the top of this script). Filenames do not encode"
     echo "                   this either, so use a separate -o dir."
+    echo "  -H sigma:        homogeneous mode: zero exact solution and Dirichlet BCs,"
+    echo "                   white-noise initial condition of amplitude sigma"
+    echo "                   (default 1e-6). The Error filter then reports ||u_h||"
+    echo "                   itself, evolving under the homogeneous operator, so its"
+    echo "                   growth is the amplification factor with no truncation"
+    echo "                   error floor and no initial-transfer transient."
+    echo "  -S:              static mesh: drop the AdaptBL driver entirely. NumSteps"
+    echo "                   becomes the total step count and n/method are inert but"
+    echo "                   still name the files. For the fixed-mesh validation sweep."
     echo "  -V:              also write a high-order vtu per timestep via a FieldConvert"
     echo "                   filter, into <dir>/vtus/sol_<run>_<step>_fc.vtu. Slow and"
     echo "                   bulky for long sweeps; meant for eyeballing single runs."
@@ -35,8 +44,11 @@ timestep=0.01
 numsteps=20
 periodic=""
 fcfilter=0
+homogeneous=0
+noise_sigma="1e-6"
+static_mesh=0
 resdir="results_stability"
-while getopts "j:qsT:N:P:Vo:" opt; do
+while getopts "j:qsT:N:P:H:SVo:" opt; do
     case $opt in
         j) max_jobs="$OPTARG" ;;
         q) quiet=1 ;;
@@ -44,6 +56,8 @@ while getopts "j:qsT:N:P:Vo:" opt; do
         T) timestep="$OPTARG" ;;
         N) numsteps="$OPTARG" ;;
         P) periodic="$OPTARG" ;;
+        H) homogeneous=1; noise_sigma="$OPTARG" ;;
+        S) static_mesh=1 ;;
         V) fcfilter=1 ;;
         o) resdir="$OPTARG" ;;
         *) usage; exit 1 ;;
@@ -156,6 +170,28 @@ for advy in "${advy_arr[@]}"; do
                         fi
                     done
                     sed -i 's| *<!-- PERIODIC_[XY]:[0-9]* -->||' "$newfile"
+
+                    # Exact solution / initial condition. In homogeneous mode
+                    # the problem is driven only by the initial noise, so any
+                    # surviving Dirichlet boundary is zeroed too - otherwise it
+                    # injects a solution the growth measurement would pick up.
+                    if [ "$homogeneous" -eq 1 ]; then
+                        sed -i "s|EXACT_EXPR|0|"                  "$newfile"
+                        sed -i "s|IC_EXPR|awgn(${noise_sigma})|"  "$newfile"
+                        sed -i 's|\(<D VAR="u" USERDEFINEDTYPE="TimeDependent" VALUE=\)"[^"]*"|\1"0"|' "$newfile"
+                    else
+                        expr='sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))'
+                        sed -i "s|EXACT_EXPR|${expr}|" "$newfile"
+                        sed -i "s|IC_EXPR|${expr}|"    "$newfile"
+                    fi
+
+                    # Static mesh: strip the driver and everything it reads, so
+                    # NumSteps is the whole run and the mesh never moves.
+                    if [ "$static_mesh" -eq 1 ]; then
+                        sed -i '/PROPERTY="Driver"/d'   "$newfile"
+                        sed -i '/AdaptBL_/d'            "$newfile"
+                        sed -i '/NumRuns/d'             "$newfile"
+                    fi
                     sed -i "s/OUTPUT_METHOD/${method}/g"        "$newfile"
                     sed -i "s/ADVY_SAN/${advy_san}/g"           "$newfile"
                     sed -i "s/ADVY/${advy}/g"                   "$newfile"

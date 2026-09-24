@@ -55,6 +55,10 @@ FILE_RE = re.compile(r'ErrorFile_v_(.+?)_h_(.+?)_n_(\d+)_p_(\d+)_m_(.+)\.err$')
 LOG_RE = re.compile(r'log_v(.+?)_h(.+?)_n(\d+)_p(\d+)_m(.+)\.txt$')
 # Printed once per adaptive cycle by DriverAdaptBL in ALE mode.
 GRIDVEL_RE = re.compile(r'GridVel n=(\d+) vy_min=(\S+) vy_max=(\S+)')
+# Printed every IO_CFLSteps by UnsteadyAdvection. Normalised so that CFL = 1 is
+# the predicted stability limit; the startup summary line has no bare value
+# after the colon, so the number is what distinguishes it.
+CFL_RE = re.compile(r'CFL_GLL:\s+([0-9eE.+-]+)\s+\(in elmt')
 
 METRIC_LABELS = {
     'u_L2':   'L2 error',
@@ -69,6 +73,11 @@ MISSING_COLOR  = '#d9d9d9'   # neutral: no run at this grid point
 # the exact solution. Anything larger clips to the top of the ramp.
 DEFAULT_VMIN = 1e-2
 DEFAULT_VMAX = 1e0
+
+# For --stat growth the metric column is an amplification factor, not an error:
+# 1 is "unchanged", so the scale straddles it instead.
+GROWTH_VMIN = 1e-1
+GROWTH_VMAX = 1e3
 
 # Cell geometry in inches. The heatmap axes is placed at exactly
 # (ncols*CELL_W) x (nrows*CELL_W*CELL_ASPECT) inches via a fixed Divider, so
@@ -112,6 +121,22 @@ def read_gridvel(logfile):
     return min(vals) if vals else None
 
 
+def read_cfl(logfile):
+    """Largest CFL_GLL the solver reported over the whole run.
+
+    This is the predicted stability parameter: blow-up is expected above 1. A
+    run that aborted early logged fewer steps, so this is the peak over what it
+    managed, not over the schedule it was asked for.
+    """
+    try:
+        with open(logfile) as f:
+            vals = [float(m.group(1))
+                    for m in (CFL_RE.search(line) for line in f) if m]
+    except OSError:
+        return None
+    return max(vals) if vals else None
+
+
 def parse_filename(fname):
     m = FILE_RE.match(os.path.basename(fname))
     if not m:
@@ -128,8 +153,11 @@ def read_run(errfile, mcol, stat='peak'):
     """Return (value, exploded).
 
     stat selects the peak error over the whole run (the default, which captures
-    the damage done by an adaptive step rather than how well it recovered) or
-    the final-timestep error.
+    the damage done by an adaptive step rather than how well it recovered), the
+    final-timestep error, or 'growth' - the ratio of the last value to the
+    first. Under -H (zero exact solution, noise initial condition) the metric
+    column is ||u_h|| itself, so growth is the amplification the scheme applied
+    over the run and is the quantity the CFL prediction is about.
 
     exploded is True when the solver aborted on NaN, in which case there is no
     usable value. A run that diverged without reaching NaN is not special cased
@@ -152,7 +180,16 @@ def read_run(errfile, mcol, stat='peak'):
     if data.size == 0:
         return None, True
 
-    val = data[:, mcol].max() if stat == 'peak' else data[-1, mcol]
+    if stat == 'peak':
+        val = data[:, mcol].max()
+    elif stat == 'growth':
+        # Duplicate rows share a timestamp (the solver writes one per solve and
+        # one per transfer), which does not matter for a first/last ratio.
+        if data[0, mcol] == 0.0:
+            return None, True
+        val = data[-1, mcol] / data[0, mcol]
+    else:
+        val = data[-1, mcol]
     if not np.isfinite(val):
         return None, True
     return val, False
@@ -188,20 +225,30 @@ def main():
                         help='Directory containing .err/.status files (default: results_stability)')
     parser.add_argument('--metric', choices=list(METRIC_COL), default='u_L2',
                         help='Error metric to plot (default: u_L2)')
-    parser.add_argument('--vmin', type=float, default=DEFAULT_VMIN,
-                        help=f'Colour scale minimum (default: {DEFAULT_VMIN:g})')
-    parser.add_argument('--vmax', type=float, default=DEFAULT_VMAX,
-                        help=f'Colour scale maximum (default: {DEFAULT_VMAX:g})')
-    parser.add_argument('--stat', choices=['peak', 'final'], default='peak',
-                        help='Peak error over the run (default) or final-timestep error. '
-                             'Peak measures the damage an adaptive step does; final also '
-                             'reflects how far the solution recovered afterwards.')
+    parser.add_argument('--vmin', type=float, default=None,
+                        help=f'Colour scale minimum (default: {DEFAULT_VMIN:g}, '
+                             f'or {GROWTH_VMIN:g} with --stat growth)')
+    parser.add_argument('--vmax', type=float, default=None,
+                        help=f'Colour scale maximum (default: {DEFAULT_VMAX:g}, '
+                             f'or {GROWTH_VMAX:g} with --stat growth)')
+    parser.add_argument('--stat', choices=['peak', 'final', 'growth'], default='peak',
+                        help='Peak error over the run (default), final-timestep error, or '
+                             'growth (last/first). Peak measures the damage an adaptive '
+                             'step does; final also reflects how far the solution '
+                             'recovered afterwards; growth is the amplification factor, '
+                             'and is what the CFL prediction refers to - use it with the '
+                             'homogeneous runs from stability_steps.sh -H.')
     parser.add_argument('--cmap', default='viridis',
                         help='Named matplotlib colormap (default: viridis)')
     parser.add_argument('--title', default=None,
                         help='Figure title (default: describes the fixed parameters)')
-    parser.add_argument('--annotate', action='store_true',
-                        help='Print the error value inside each cell')
+    parser.add_argument('--annotate', nargs='?', const='value', default=None,
+                        choices=['value', 'cfl', 'both'],
+                        help='Print a number inside each cell: the plotted value '
+                             '(default), the predicted CFL_GLL, or both.')
+    parser.add_argument('--cfl-contour', action='store_true',
+                        help='Draw the CFL_GLL = 1 contour, i.e. the predicted '
+                             'stability boundary, over the heatmap.')
     parser.add_argument('--paper', action='store_true',
                         help='Paper mode: smaller figure so elements scale up when embedded')
     parser.add_argument('--save', metavar='FILE',
@@ -249,6 +296,15 @@ def main():
         return advy_filter is None or any(np.isclose(v, t) for t in advy_filter)
 
     mcol = METRIC_COL[args.metric]
+
+    growth = args.stat == 'growth'
+    if args.vmin is None:
+        args.vmin = GROWTH_VMIN if growth else DEFAULT_VMIN
+    if args.vmax is None:
+        args.vmax = GROWTH_VMAX if growth else DEFAULT_VMAX
+    # "Peak L2 error" reads fine; "Growth L2 error" does not.
+    quantity = (f'{METRIC_LABELS[args.metric]} growth' if growth
+                else f'{args.stat.capitalize()} {METRIC_LABELS[args.metric]}')
 
     pattern = os.path.join(args.results_dir, 'ErrorFile_v_*_h_*_n_*_p_*_m_*.err')
     all_files = sorted(glob.glob(pattern))
@@ -298,6 +354,7 @@ def main():
     # geometry and so does not depend on advy - but a run that aborted early
     # logged fewer cycles, so take the extreme over every run in the column.
     gridvel = {}
+    cfl_cells = {}
     for logfile in glob.glob(os.path.join(args.results_dir, 'log_v*.txt')):
         m = LOG_RE.match(os.path.basename(logfile))
         if not m:
@@ -315,10 +372,23 @@ def main():
             x = h
         if not keep_x(x):
             continue
+        advy = unsanitise(m.group(1))
+        if keep_advy(advy):
+            c = read_cfl(logfile)
+            if c is not None:
+                cfl_cells[(advy, x)] = c
+
         v = read_gridvel(logfile)
         if v is None:
             continue
         gridvel[x] = min(gridvel.get(x, v), v)
+
+    # Unlike the grid velocity, CFL depends on advy as well, so it is a full
+    # grid rather than one value per column.
+    cflgrid = np.full_like(grid, np.nan)
+    for (advy, x), c in cfl_cells.items():
+        if advy in advy_vals and x in x_vals:
+            cflgrid[advy_vals.index(advy), x_vals.index(x)] = c
 
     n_ok = int(np.isfinite(grid).sum())
     n_boom = int(exploded.sum())
@@ -326,6 +396,8 @@ def main():
     finite = grid[np.isfinite(grid)]
     print(f'{len(cells)} runs: {n_ok} completed, {n_boom} exploded (NaN abort), '
           f'{n_gap} grid point(s) with no run')
+    n_cfl = int(np.isfinite(cflgrid).sum())
+    print(f'CFL_GLL logged for {n_cfl} of {present.sum()} cell(s)')
     if finite.size:
         print(f'{args.metric} range: {finite.min():.6g} to {finite.max():.6g}')
     else:
@@ -370,14 +442,44 @@ def main():
     if args.annotate:
         for i in range(len(advy_vals)):
             for j in range(len(x_vals)):
-                if exploded[i, j] or not np.isfinite(grid[i, j]):
+                if not present[i, j]:
                     continue
-                # Contrast against whatever the colormap actually put in the cell.
-                r, g, b, _ = cmap(LogNorm(vmin=vmin, vmax=vmax)(grid[i, j]))
-                lum = 0.299 * r + 0.587 * g + 0.114 * b
-                ax.text(j, i, f'{grid[i, j]:.2g}', ha='center', va='center',
-                        fontsize='x-small', zorder=3,
-                        color='#222222' if lum > 0.55 else 'white')
+                parts = []
+                if args.annotate in ('value', 'both') and np.isfinite(grid[i, j]):
+                    parts.append(f'{grid[i, j]:.2g}')
+                if args.annotate in ('cfl', 'both') and np.isfinite(cflgrid[i, j]):
+                    parts.append(f'CFL {cflgrid[i, j]:.2g}')
+                if not parts:
+                    continue
+
+                # Contrast against whatever was actually drawn in the cell:
+                # the reserved colour for an exploded run, the colormap
+                # otherwise.
+                if exploded[i, j] or not np.isfinite(grid[i, j]):
+                    lum = 0.0
+                    dy = 0.22 if args.annotate == 'both' else 0.0
+                else:
+                    r, g, b, _ = cmap(LogNorm(vmin=vmin, vmax=vmax)(grid[i, j]))
+                    lum = 0.299 * r + 0.587 * g + 0.114 * b
+                    dy = 0.0
+                colour = '#222222' if lum > 0.55 else 'white'
+
+                ax.text(j, i + dy, '\n'.join(parts), ha='center', va='center',
+                        fontsize='xx-small' if len(parts) > 1 else 'x-small',
+                        zorder=3, color=colour, linespacing=1.1)
+
+    # Predicted stability boundary. Drawn from the CFL grid rather than the
+    # measured errors, so where it sits relative to the blow-up region is the
+    # comparison the plot exists to make.
+    if args.cfl_contour:
+        if np.isfinite(cflgrid).sum() < 4:
+            print('--cfl-contour: too few CFL_GLL values logged to contour '
+                  '(is IO_CFLSteps set in the sessions?)')
+        else:
+            ax.contour(xs, ys, np.ma.masked_invalid(cflgrid), levels=[1.0],
+                       colors='white', linewidths=2.0, zorder=4)
+            ax.contour(xs, ys, np.ma.masked_invalid(cflgrid), levels=[1.0],
+                       colors='#8b1a1a', linewidths=1.0, zorder=5)
 
     ax.set_xticks(xs)
     ax.set_xticklabels([f'{x:g}' for x in x_vals])
@@ -405,7 +507,7 @@ def main():
     if args.title is not None:
         ax.set_title(args.title, pad=title_pad)
     else:
-        ax.set_title(f'{METRIC_LABELS[args.metric]}  '
+        ax.set_title(f'{quantity}  '
                      f'({fixed_desc}, p={args.fix_p}, {args.method})',
                      pad=title_pad)
 
@@ -423,7 +525,7 @@ def main():
                      loc='lower left', bbox_to_anchor=(1.0 + CBAR_PAD_FRAC, 0., 1., 1.),
                      bbox_transform=ax.transAxes, borderpad=0)
     cbar = fig.colorbar(mesh, cax=cax, extend=extend)
-    cbar.set_label(f'{args.stat.capitalize()} {METRIC_LABELS[args.metric]}')
+    cbar.set_label(quantity)
 
     ax.set_xlim(-0.5, len(x_vals) - 0.5)
     ax.set_ylim(-0.5, len(advy_vals) - 0.5)

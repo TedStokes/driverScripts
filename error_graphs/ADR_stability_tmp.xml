@@ -28,6 +28,7 @@ MOVEMENT_BLOCK
         <P> NumQuadPointsError = 19 </P>
           <P> TimeStep        = TIMESTEP_VAL       </P>
           <P> NumSteps        = NUMSTEPS_VAL       </P>
+          <P> IO_CFLSteps     = 1       </P>
           <P> advx            = 0.0               </P>
           <P> advy            = ADVY              </P>
           <P> k               = 2*PI                     </P>
@@ -74,14 +75,15 @@ MOVEMENT_BLOCK
         <E VAR="Vy" VALUE="advy" />
     </FUNCTION>
 
+    <!-- stability_steps.sh -H swaps the two values below for a zero exact
+         solution and a white-noise initial condition, which makes the Error
+         filter report ||u_h|| under the homogeneous operator. -->
     <FUNCTION NAME="ExactSolution">
-        <E VAR="u"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" />
+        <E VAR="u" VALUE="EXACT_EXPR" />
     </FUNCTION>
 
     <FUNCTION NAME="InitialConditions">
-        <E VAR="u"
-            VALUE="sin(k*(x-advx*t))*cos(k*(y-advy*t)+PI*(x-advx*t))" />
+        <E VAR="u" VALUE="IC_EXPR" />
     </FUNCTION>
 
   </CONDITIONS>
