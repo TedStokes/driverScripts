@@ -44,8 +44,10 @@ import re
 import sys
 
 import numpy as np
+from numpy.polynomial import legendre as npleg
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Rectangle
 from mpl_toolkits.axes_grid1 import Divider, Size
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -65,6 +67,14 @@ METRIC_LABELS = {
     'u_Linf': 'Linf error',
     'u_H1':   'H1 error',
 }
+
+# Geometry of the wall-normal element stack, needed to turn the solver's
+# per-element CFL into one measured against the true stability limit. Taken
+# from ADR_stability_tmp.xml (AdaptBL_nLayers) and squarecols_periodic.xml
+# (the split edge spans y = -1 to 0; the two rows above it are never split).
+NLAYERS    = 4
+SPLIT_EDGE = 1.0
+BULK_ROWS  = (0.5, 0.5)
 
 EXPLODED_COLOR = '#8b1a1a'   # critical: solver aborted on NaN
 MISSING_COLOR  = '#d9d9d9'   # neutral: no run at this grid point
@@ -96,6 +106,108 @@ MARGIN_R, MARGIN_T = 1.6, 1.2
 # width in inches, and a gap given as a fraction of the heatmap width.
 CBAR_WIDTH_INCHES = 0.22
 CBAR_PAD_FRAC = 0.025
+# Rows' worth of space kept free below the colourbar for the cell-value key.
+KEY_ROWS = 2.3
+
+# Key cell colour: the top of viridis, matching the saturated cells.
+KEY_CELL_COLOR = '#fde725'
+
+
+def _first_layer_frac(r):
+    """Fraction of the split edge taken by the first layer, for ratio r."""
+    return 1.0 / sum(r ** l for l in range(NLAYERS))
+
+
+def _final_layer_frac(r):
+    return r ** (NLAYERS - 1) / sum(r ** l for l in range(NLAYERS))
+
+
+def _solve(f, target, lo=1.0 + 1e-9, hi=60.0):
+    """Bisect f(r) = target on [lo, hi]; f is monotonic in r."""
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if (f(lo) - target) * (f(mid) - target) <= 0:
+            hi = mid
+        else:
+            lo = mid
+    return 0.5 * (lo + hi)
+
+
+def layer_stacks(h_init, n):
+    """Wall-normal element heights at each of the n adaptive cycles.
+
+    Mirrors the r-ramp in DriverAdaptBL.cpp:402-458: the final-layer fraction is
+    interpolated linearly from uniform to the value implied by AdaptBL_h_init,
+    and the geometric ratio is recovered from it at each cycle.
+    """
+    r_fin = _solve(_first_layer_frac, h_init)
+    yf_init, yf_fin = 1.0 / NLAYERS, _final_layer_frac(r_fin)
+
+    stacks = []
+    for k in range(n):
+        yf = yf_init if n == 1 else yf_init + (yf_fin - yf_init) * k / (n - 1)
+        r = 1.0 if abs(yf - yf_init) < 1e-12 else _solve(_final_layer_frac, yf)
+        h0 = _first_layer_frac(r) * SPLIT_EDGE
+        stacks.append(tuple(h0 * r ** l for l in range(NLAYERS)) + BULK_ROWS)
+    return stacks
+
+
+_LIMIT_CACHE = {}
+
+
+def stability_limit(heights, P):
+    """True RK4 limit for this element stack, relative to the uniform-mesh one.
+
+    The solver's CFL is normalised by the uniform-mesh constant applied to the
+    smallest element. That is conservative on a graded mesh, because a thin
+    element wedged between thicker ones is damped by its neighbours. This
+    returns the factor by which the stack relaxes it, so dividing the reported
+    CFL by it puts the stability boundary back at 1.
+    """
+    key = (tuple(round(h, 12) for h in heights), P)
+    if key in _LIMIT_CACHE:
+        return _LIMIT_CACHE[key]
+
+    n = P + 1
+    minv = np.diag([(2 * k + 1) / 2.0 for k in range(n)])
+    stiff = np.zeros((n, n))
+    for i in range(n):
+        di = npleg.legder(np.eye(n)[i])
+        for j in range(n):
+            integ = npleg.legint(npleg.legmul(di, np.eye(n)[j]))
+            stiff[i, j] = npleg.legval(1, integ) - npleg.legval(-1, integ)
+    right = np.ones(n)
+    left = np.array([(-1.0) ** k for k in range(n)])
+
+    # Periodic chain of elements, unit advection speed, upwind flux.
+    ne = len(heights)
+    A = np.zeros((ne * n, ne * n))
+    for e in range(ne):
+        s0, fac = e * n, 2.0 / heights[e]
+        A[s0:s0 + n, s0:s0 + n] = fac * minv @ (stiff - np.outer(right, right))
+        up = ((e - 1) % ne) * n
+        A[s0:s0 + n, up:up + n] += fac * minv @ np.outer(left, right)
+    ev = np.linalg.eigvals(A)
+
+    rk4 = [1 / 24, 1 / 6, 0.5, 1.0, 1.0]
+    hmin, lo, hi = min(heights), 0.0, 50.0
+    for _ in range(120):
+        mid = 0.5 * (lo + hi)
+        if np.max(np.abs(np.polyval(rk4, (mid * hmin) * ev))) <= 1 + 1e-12:
+            lo = mid
+        else:
+            hi = mid
+
+    # UNIFORM_C1D is the same bisection on a uniform mesh, i.e. what the
+    # solver's CFL is already normalised by.
+    out = lo / UNIFORM_C1D[P]
+    _LIMIT_CACHE[key] = out
+    return out
+
+
+# Uniform-mesh RK4 limits dt|a|/h for weak-DG upwind advection, by degree.
+UNIFORM_C1D = {1: 0.464223, 2: 0.235217, 3: 0.145447, 4: 0.100040,
+               5: 0.073628, 6: 0.056797, 7: 0.045277, 8: 0.037084}
 
 
 def unsanitise(s):
@@ -122,19 +234,33 @@ def read_gridvel(logfile):
 
 
 def read_cfl(logfile):
-    """Largest CFL_GLL the solver reported over the whole run.
+    """Per-cycle CFL_GLL series the solver reported, one value per step.
 
-    This is the predicted stability parameter: blow-up is expected above 1. A
-    run that aborted early logged fewer steps, so this is the peak over what it
-    managed, not over the schedule it was asked for.
+    A run that aborted early logged fewer steps, so this covers what it managed
+    rather than the schedule it was asked for.
     """
     try:
         with open(logfile) as f:
-            vals = [float(m.group(1))
+            return [float(m.group(1))
                     for m in (CFL_RE.search(line) for line in f) if m]
     except OSError:
+        return []
+
+
+def corrected_cfl(series, h_init, n, P):
+    """Peak CFL measured against the true limit for each cycle's own mesh.
+
+    The solver normalises by the uniform-mesh constant applied to the smallest
+    element, which under-predicts the limit on a graded stack. Rescaling each
+    cycle by its own stack puts the stability boundary back at 1.
+    """
+    stacks = layer_stacks(h_init, n)
+    if not series:
         return None
-    return max(vals) if vals else None
+    # A run that aborted mid-sweep has fewer CFL lines than cycles; pair from
+    # the start, which is the order the ramp runs in.
+    return max(c / stability_limit(st, P)
+               for c, st in zip(series, stacks))
 
 
 def parse_filename(fname):
@@ -180,7 +306,16 @@ def read_run(errfile, mcol, stat='peak'):
     if data.size == 0:
         return None, True
 
-    if stat == 'peak':
+    if stat == 'maxgain':
+        # Largest single-step amplification. The most sensitive indicator of a
+        # momentary CFL violation, since it survives being damped away later -
+        # unlike growth, which nets the whole run out.
+        t, idx = np.unique(data[:, 0], return_index=True)
+        u = data[np.sort(idx), mcol]
+        if u.size < 2 or (u[:-1] == 0).any():
+            return None, True
+        val = (u[1:] / u[:-1]).max()
+    elif stat == 'peak':
         val = data[:, mcol].max()
     elif stat == 'growth':
         # Duplicate rows share a timestamp (the solver writes one per solve and
@@ -231,24 +366,30 @@ def main():
     parser.add_argument('--vmax', type=float, default=None,
                         help=f'Colour scale maximum (default: {DEFAULT_VMAX:g}, '
                              f'or {GROWTH_VMAX:g} with --stat growth)')
-    parser.add_argument('--stat', choices=['peak', 'final', 'growth'], default='peak',
+    parser.add_argument('--stat', choices=['peak', 'final', 'growth', 'maxgain'],
+                        default='peak',
                         help='Peak error over the run (default), final-timestep error, or '
                              'growth (last/first). Peak measures the damage an adaptive '
                              'step does; final also reflects how far the solution '
                              'recovered afterwards; growth is the amplification factor, '
                              'and is what the CFL prediction refers to - use it with the '
-                             'homogeneous runs from stability_steps.sh -H.')
+                             'homogeneous runs from stability_steps.sh -H. '
+                             'maxgain is the largest single-step amplification, '
+                             'which is directly comparable to the predicted G(CFL) '
+                             'and survives later damping.')
     parser.add_argument('--cmap', default='viridis',
                         help='Named matplotlib colormap (default: viridis)')
     parser.add_argument('--title', default=None,
                         help='Figure title (default: describes the fixed parameters)')
     parser.add_argument('--annotate', nargs='?', const='value', default=None,
-                        choices=['value', 'cfl', 'both'],
+                        choices=['value', 'cfl', 'cflraw', 'both'],
                         help='Print a number inside each cell: the plotted value '
-                             '(default), the predicted CFL_GLL, or both.')
+                             '(default), the grading-corrected CFL, the solver\'s '
+                             'raw CFL_GLL, or value plus corrected CFL.')
     parser.add_argument('--cfl-contour', action='store_true',
-                        help='Draw the CFL_GLL = 1 contour, i.e. the predicted '
-                             'stability boundary, over the heatmap.')
+                        help='Draw the CFL = 1 contour, i.e. the predicted '
+                             'stability boundary, over the heatmap. Uses the '
+                             'grading-corrected CFL.')
     parser.add_argument('--paper', action='store_true',
                         help='Paper mode: smaller figure so elements scale up when embedded')
     parser.add_argument('--save', metavar='FILE',
@@ -297,14 +438,18 @@ def main():
 
     mcol = METRIC_COL[args.metric]
 
-    growth = args.stat == 'growth'
+    growth = args.stat in ('growth', 'maxgain')
     if args.vmin is None:
         args.vmin = GROWTH_VMIN if growth else DEFAULT_VMIN
     if args.vmax is None:
         args.vmax = GROWTH_VMAX if growth else DEFAULT_VMAX
     # "Peak L2 error" reads fine; "Growth L2 error" does not.
-    quantity = (f'{METRIC_LABELS[args.metric]} growth' if growth
-                else f'{args.stat.capitalize()} {METRIC_LABELS[args.metric]}')
+    if args.stat == 'maxgain':
+        quantity = f'Max per-step {METRIC_LABELS[args.metric]} gain'
+    elif args.stat == 'growth':
+        quantity = f'{METRIC_LABELS[args.metric]} growth'
+    else:
+        quantity = f'{args.stat.capitalize()} {METRIC_LABELS[args.metric]}'
 
     pattern = os.path.join(args.results_dir, 'ErrorFile_v_*_h_*_n_*_p_*_m_*.err')
     all_files = sorted(glob.glob(pattern))
@@ -355,6 +500,7 @@ def main():
     # logged fewer cycles, so take the extreme over every run in the column.
     gridvel = {}
     cfl_cells = {}
+    cfl_raw_cells = {}
     for logfile in glob.glob(os.path.join(args.results_dir, 'log_v*.txt')):
         m = LOG_RE.match(os.path.basename(logfile))
         if not m:
@@ -374,9 +520,11 @@ def main():
             continue
         advy = unsanitise(m.group(1))
         if keep_advy(advy):
-            c = read_cfl(logfile)
-            if c is not None:
-                cfl_cells[(advy, x)] = c
+            series = read_cfl(logfile)
+            if series:
+                cfl_raw_cells[(advy, x)] = max(series)
+                cfl_cells[(advy, x)] = corrected_cfl(
+                    series, h, n, args.fix_p - 1)
 
         v = read_gridvel(logfile)
         if v is None:
@@ -386,9 +534,11 @@ def main():
     # Unlike the grid velocity, CFL depends on advy as well, so it is a full
     # grid rather than one value per column.
     cflgrid = np.full_like(grid, np.nan)
-    for (advy, x), c in cfl_cells.items():
-        if advy in advy_vals and x in x_vals:
-            cflgrid[advy_vals.index(advy), x_vals.index(x)] = c
+    cflrawgrid = np.full_like(grid, np.nan)
+    for target, src in ((cflgrid, cfl_cells), (cflrawgrid, cfl_raw_cells)):
+        for (advy, x), c in src.items():
+            if c is not None and advy in advy_vals and x in x_vals:
+                target[advy_vals.index(advy), x_vals.index(x)] = c
 
     n_ok = int(np.isfinite(grid).sum())
     n_boom = int(exploded.sum())
@@ -397,7 +547,14 @@ def main():
     print(f'{len(cells)} runs: {n_ok} completed, {n_boom} exploded (NaN abort), '
           f'{n_gap} grid point(s) with no run')
     n_cfl = int(np.isfinite(cflgrid).sum())
-    print(f'CFL_GLL logged for {n_cfl} of {present.sum()} cell(s)')
+    print(f'CFL logged for {n_cfl} of {present.sum()} cell(s)')
+    if n_cfl:
+        # advy = 0 with no mesh motion gives CFL 0 in both, so skip those.
+        nz = np.isfinite(cflgrid) & (cflgrid > 0)
+        if nz.any():
+            ratio = cflrawgrid[nz] / cflgrid[nz]
+            print(f'grading relaxes the limit by {ratio.min():.2f}-{ratio.max():.2f}x '
+                  f'(raw CFL_GLL / corrected)')
     if finite.size:
         print(f'{args.metric} range: {finite.min():.6g} to {finite.max():.6g}')
     else:
@@ -439,6 +596,13 @@ def main():
         ax.text(j, i, 'NaN', ha='center', va='center', color='white',
                 fontsize='x-small', zorder=3)
 
+    # Cell numbers at title size on full-size cells, shrinking with the cell in
+    # --paper mode and when two numbers share a cell.
+    cell_pt = (FontProperties(size=plt.rcParams['axes.titlesize'])
+               .get_size_in_points() * cell_w / CELL_W)
+    if args.annotate == 'both':
+        cell_pt *= 0.6
+
     if args.annotate:
         for i in range(len(advy_vals)):
             for j in range(len(x_vals)):
@@ -448,7 +612,12 @@ def main():
                 if args.annotate in ('value', 'both') and np.isfinite(grid[i, j]):
                     parts.append(f'{grid[i, j]:.2g}')
                 if args.annotate in ('cfl', 'both') and np.isfinite(cflgrid[i, j]):
-                    parts.append(f'CFL {cflgrid[i, j]:.2g}')
+                    # Only 'both' needs the prefix to tell the two numbers
+                    # apart; otherwise the key under the colourbar says it.
+                    prefix = 'CFL ' if args.annotate == 'both' else ''
+                    parts.append(f'{prefix}{cflgrid[i, j]:.2g}')
+                if args.annotate == 'cflraw' and np.isfinite(cflrawgrid[i, j]):
+                    parts.append(f'{cflrawgrid[i, j]:.2g}')
                 if not parts:
                     continue
 
@@ -465,7 +634,7 @@ def main():
                 colour = '#222222' if lum > 0.55 else 'white'
 
                 ax.text(j, i + dy, '\n'.join(parts), ha='center', va='center',
-                        fontsize='xx-small' if len(parts) > 1 else 'x-small',
+                        fontsize=cell_pt,
                         zorder=3, color=colour, linespacing=1.1)
 
     # Predicted stability boundary. Drawn from the CFL grid rather than the
@@ -521,11 +690,31 @@ def main():
     # from the axes' pre-aspect slot, which differs between the taller ALE
     # figure and the others; an inset anchored in ax coordinates tracks the real
     # box, so the bar is identical in size and position on every plot.
+    has_key = args.annotate in ('cfl', 'cflraw')
+    cbar_frac = 1.0 - KEY_ROWS / len(advy_vals) if has_key else 1.0
     cax = inset_axes(ax, width=CBAR_WIDTH_INCHES, height='100%',
-                     loc='lower left', bbox_to_anchor=(1.0 + CBAR_PAD_FRAC, 0., 1., 1.),
+                     loc='lower left',
+                     bbox_to_anchor=(1.0 + CBAR_PAD_FRAC, 1.0 - cbar_frac,
+                                     1., cbar_frac),
                      bbox_transform=ax.transAxes, borderpad=0)
     cbar = fig.colorbar(mesh, cax=cax, extend=extend)
     cbar.set_label(quantity)
+
+    # Bare cell numbers need a key saying what they are.
+    # A sample cell, the same size as the grid's, level with the bottom row.
+    cell_key = {'cfl': 'CFL', 'cflraw': 'raw\nCFL'}.get(args.annotate)
+    if cell_key:
+        kw, kh = 1.0 / len(x_vals), 1.0 / len(advy_vals)
+        kx = 1.0 + CBAR_PAD_FRAC
+        ax.add_patch(Rectangle((kx, 0.0), kw, kh, transform=ax.transAxes,
+                               facecolor=KEY_CELL_COLOR, edgecolor='#888888',
+                               linewidth=0.8, clip_on=False))
+        ax.text(kx + kw / 2, kh / 2, cell_key, transform=ax.transAxes,
+                ha='center', va='center', color='#222222',
+                fontsize=cell_pt * (0.6 if '\n' in cell_key else 1.0),
+                linespacing=1.1)
+        ax.text(kx, kh + 0.15 * kh, 'Cell values:', transform=ax.transAxes,
+                ha='left', va='bottom')
 
     ax.set_xlim(-0.5, len(x_vals) - 0.5)
     ax.set_ylim(-0.5, len(advy_vals) - 0.5)

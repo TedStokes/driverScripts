@@ -37,6 +37,25 @@ usage() {
     echo "recorded in the matching .status file alongside the .err file."
 }
 
+# getopts treats a leading-dash argument as a bundle of flags, so a value list
+# that starts with a negative number (e.g. "-2,-3") is silently swallowed and
+# the script falls through to usage with no indication why. Catch it here and
+# say what to do about it. Legitimate flags are all letters, so keying on a
+# dash followed by a digit or a dot is unambiguous.
+for arg in "$@"; do
+    if [[ "$arg" == "--" ]]; then
+        break
+    fi
+    if [[ "$arg" =~ ^-[0-9.] ]]; then
+        echo "Error: '$arg' starts with a minus, so getopts reads it as options."
+        echo "       Put -- before the positional arguments, e.g."
+        echo "         $0 -q -j 8 -- \"$arg\" <h> <n> <p> [<methods>]"
+        echo "       (a value list that starts with a non-negative number, such as"
+        echo "        \"0,-0.3,0.3\", does not need this.)"
+        exit 1
+    fi
+done
+
 max_jobs=1
 quiet=0
 skip_existing=0
