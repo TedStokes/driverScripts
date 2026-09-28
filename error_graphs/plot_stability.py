@@ -61,6 +61,9 @@ GRIDVEL_RE = re.compile(r'GridVel n=(\d+) vy_min=(\S+) vy_max=(\S+)')
 # the predicted stability limit; the startup summary line has no bare value
 # after the colon, so the number is what distinguishes it.
 CFL_RE = re.compile(r'CFL_GLL:\s+([0-9eE.+-]+)\s+\(in elmt')
+# Nektar's own IO_CFLSteps estimate, printed alongside. Not scheme-aware, so it
+# does not put the limit at 1; kept for comparison with CFL_GLL.
+NEK_CFL_RE = re.compile(r'^CFL:\s+([0-9eE.+-]+)\s+\(in elmt')
 
 METRIC_LABELS = {
     'u_L2':   'L2 error',
@@ -109,6 +112,10 @@ CBAR_PAD_FRAC = 0.025
 # Rows' worth of space kept free below the colourbar for the cell-value key.
 KEY_ROWS = 2.3
 
+# --hatch-stable: hatching over amplification factors <= 1.
+STABLE_HATCH = '///'
+STABLE_HATCH_COLOR = (1, 1, 1, 0.45)
+
 # Key cell colour: the top of viridis, matching the saturated cells.
 KEY_CELL_COLOR = '#fde725'
 
@@ -145,7 +152,9 @@ def layer_stacks(h_init, n):
 
     stacks = []
     for k in range(n):
-        yf = yf_init if n == 1 else yf_init + (yf_fin - yf_init) * k / (n - 1)
+        # A single run goes straight to the final mesh (its CFL_GLL matches the
+        # last cycle of any longer ramp), so it is not the uniform start.
+        yf = yf_fin if n == 1 else yf_init + (yf_fin - yf_init) * k / (n - 1)
         r = 1.0 if abs(yf - yf_init) < 1e-12 else _solve(_final_layer_frac, yf)
         h0 = _first_layer_frac(r) * SPLIT_EDGE
         stacks.append(tuple(h0 * r ** l for l in range(NLAYERS)) + BULK_ROWS)
@@ -233,16 +242,22 @@ def read_gridvel(logfile):
     return min(vals) if vals else None
 
 
-def read_cfl(logfile):
-    """Per-cycle CFL_GLL series the solver reported, one value per step.
+def _cell_num(v):
+    """Two significant figures, without switching to e-notation at 100+."""
+    return f'{v:.0f}' if abs(v) >= 100 else f'{v:.2g}'
 
-    A run that aborted early logged fewer steps, so this covers what it managed
-    rather than the schedule it was asked for.
+
+def read_cfl(logfile, regex=CFL_RE):
+    """Per-cycle CFL series the solver reported, one value per step.
+
+    CFL_GLL by default; pass NEK_CFL_RE for Nektar's built-in estimate. A run
+    that aborted early logged fewer steps, so this covers what it managed rather
+    than the schedule it was asked for.
     """
     try:
         with open(logfile) as f:
             return [float(m.group(1))
-                    for m in (CFL_RE.search(line) for line in f) if m]
+                    for m in (regex.search(line) for line in f) if m]
     except OSError:
         return []
 
@@ -381,17 +396,29 @@ def main():
                         help='Named matplotlib colormap (default: viridis)')
     parser.add_argument('--title', default=None,
                         help='Figure title (default: describes the fixed parameters)')
+    parser.add_argument('--no-title', action='store_true',
+                        help='Omit the figure title')
     parser.add_argument('--annotate', nargs='?', const='value', default=None,
-                        choices=['value', 'cfl', 'cflraw', 'both'],
+                        choices=['value', 'cfl', 'cflraw', 'cflnek', 'both'],
                         help='Print a number inside each cell: the plotted value '
                              '(default), the grading-corrected CFL, the solver\'s '
-                             'raw CFL_GLL, or value plus corrected CFL.')
+                             'raw CFL_GLL, Nektar\'s built-in CFL estimate, or '
+                             'value plus corrected CFL.')
     parser.add_argument('--cfl-contour', action='store_true',
                         help='Draw the CFL = 1 contour, i.e. the predicted '
                              'stability boundary, over the heatmap. Uses the '
                              'grading-corrected CFL.')
     parser.add_argument('--paper', action='store_true',
                         help='Paper mode: smaller figure so elements scale up when embedded')
+    parser.add_argument('--hatch-stable', action='store_true',
+                        help='With --stat growth or maxgain, hatch cells whose '
+                             'amplification is <= 1 and the colourbar below 1.')
+    parser.add_argument('--static-column', action='store_true',
+                        help='With --fix-h, include the n=1 (static mesh) runs as '
+                             'a "0 (static mesh)" column.')
+    parser.add_argument('--gridvel-axis', action='store_true',
+                        help='Label each column of an ALE plot with its peak grid '
+                             'velocity along the top.')
     parser.add_argument('--save', metavar='FILE',
                         help='Save figure to FILE instead of displaying it')
     args = parser.parse_args()
@@ -412,6 +439,10 @@ def main():
                      f'{"integers" if x_is_n else "numbers"} (got {args.x_values!r})')
 
     def keep_x(x):
+        # n = 1 (a static mesh) is opt-in: one step from raw noise on the graded
+        # mesh shows non-normal transient growth the adaptive columns never see.
+        if x_is_n and x == 1 and not args.static_column:
+            return False
         return x_filter is None or any(np.isclose(x, t) for t in x_filter)
 
     advy_lo, advy_hi = -np.inf, np.inf
@@ -501,6 +532,7 @@ def main():
     gridvel = {}
     cfl_cells = {}
     cfl_raw_cells = {}
+    cfl_nek_cells = {}
     for logfile in glob.glob(os.path.join(args.results_dir, 'log_v*.txt')):
         m = LOG_RE.match(os.path.basename(logfile))
         if not m:
@@ -525,6 +557,9 @@ def main():
                 cfl_raw_cells[(advy, x)] = max(series)
                 cfl_cells[(advy, x)] = corrected_cfl(
                     series, h, n, args.fix_p - 1)
+            nek = read_cfl(logfile, NEK_CFL_RE)
+            if nek:
+                cfl_nek_cells[(advy, x)] = max(nek)
 
         v = read_gridvel(logfile)
         if v is None:
@@ -535,7 +570,9 @@ def main():
     # grid rather than one value per column.
     cflgrid = np.full_like(grid, np.nan)
     cflrawgrid = np.full_like(grid, np.nan)
-    for target, src in ((cflgrid, cfl_cells), (cflrawgrid, cfl_raw_cells)):
+    cflnekgrid = np.full_like(grid, np.nan)
+    for target, src in ((cflgrid, cfl_cells), (cflrawgrid, cfl_raw_cells),
+                        (cflnekgrid, cfl_nek_cells)):
         for (advy, x), c in src.items():
             if c is not None and advy in advy_vals and x in x_vals:
                 target[advy_vals.index(advy), x_vals.index(x)] = c
@@ -587,6 +624,15 @@ def main():
                          cmap=cmap, norm=LogNorm(vmin=vmin, vmax=vmax),
                          shading='nearest', edgecolors='white', linewidth=0.5)
 
+    # Growth-type stats are amplification factors, so optionally hatch the
+    # cells that never amplified and the matching stretch of the colourbar.
+    hatch = args.hatch_stable and growth
+    if hatch:
+        for i, j in zip(*np.nonzero(np.isfinite(grid) & (grid <= 1.0))):
+            ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, facecolor='none',
+                                   edgecolor=STABLE_HATCH_COLOR, linewidth=0,
+                                   hatch=STABLE_HATCH, zorder=1.5))
+
     # Exploded cells get the reserved critical colour, drawn over the masked
     # grid, and label themselves so no legend is needed to read them.
     for i, j in zip(*np.nonzero(exploded)):
@@ -600,6 +646,11 @@ def main():
     # --paper mode and when two numbers share a cell.
     cell_pt = (FontProperties(size=plt.rcParams['axes.titlesize'])
                .get_size_in_points() * cell_w / CELL_W)
+    # Tick, colourbar and key text match the single-number cell size; axis
+    # labels sit a step above it and the title a step above those.
+    label_pt = cell_pt
+    axlabel_pt = 1.2 * label_pt
+    title_pt = 1.5 * label_pt
     if args.annotate == 'both':
         cell_pt *= 0.6
 
@@ -610,14 +661,16 @@ def main():
                     continue
                 parts = []
                 if args.annotate in ('value', 'both') and np.isfinite(grid[i, j]):
-                    parts.append(f'{grid[i, j]:.2g}')
+                    parts.append(_cell_num(grid[i, j]))
                 if args.annotate in ('cfl', 'both') and np.isfinite(cflgrid[i, j]):
                     # Only 'both' needs the prefix to tell the two numbers
                     # apart; otherwise the key under the colourbar says it.
                     prefix = 'CFL ' if args.annotate == 'both' else ''
-                    parts.append(f'{prefix}{cflgrid[i, j]:.2g}')
+                    parts.append(prefix + _cell_num(cflgrid[i, j]))
                 if args.annotate == 'cflraw' and np.isfinite(cflrawgrid[i, j]):
-                    parts.append(f'{cflrawgrid[i, j]:.2g}')
+                    parts.append(_cell_num(cflrawgrid[i, j]))
+                if args.annotate == 'cflnek' and np.isfinite(cflnekgrid[i, j]):
+                    parts.append(_cell_num(cflnekgrid[i, j]))
                 if not parts:
                     continue
 
@@ -651,21 +704,36 @@ def main():
                        colors='#8b1a1a', linewidths=1.0, zorder=5)
 
     ax.set_xticks(xs)
-    ax.set_xticklabels([f'{x:g}' for x in x_vals])
     ax.set_yticks(ys)
     ax.set_yticklabels([f'{v:g}' for v in advy_vals])
-    ax.set_xlabel('Number of adaptive runs (n)' if x_is_n
-                  else 'Minimum layer height (h)')
+    if x_is_n:
+        # n runs are n - 1 adaptive cycles; n = 1 never leaves the final mesh.
+        ax.set_xticklabels(['0\n(static mesh)' if x == 1 else f'{x - 1:g}'
+                            for x in x_vals])
+        for x, lbl in zip(x_vals, ax.get_xticklabels()):
+            if x == 1:
+                lbl.set_color('#c0392b')
+        ax.set_xlabel('Number of adaptive cycles')
+    else:
+        ax.set_xticklabels([f'{x:g}' for x in x_vals])
+        ax.set_xlabel('Minimum layer height (h)')
     ax.set_ylabel('Advection velocity (advy)')
+    ax.xaxis.label.set_size(axlabel_pt)
+    ax.yaxis.label.set_size(axlabel_pt)
+    ax.tick_params(labelsize=label_pt)
 
     # ALE runs log their mesh motion, so label each column with it. Columns are
     # ordinal, so this is a second row of labels rather than a rescaled axis.
+    if not args.gridvel_axis:
+        gridvel = {}
     if gridvel:
         secax = ax.secondary_xaxis('top')
         secax.set_xticks(xs)
         secax.set_xticklabels(
             [f'{gridvel[x]:.3g}' if x in gridvel else '-' for x in x_vals])
-        secax.set_xlabel('Peak grid velocity ($v_y$, minimum over cycles)')
+        secax.set_xlabel('Peak magnitude grid velocity, ($v_y$)',
+                         fontsize=axlabel_pt)
+        secax.tick_params(labelsize=label_pt)
         missing = [x for x in x_vals if x not in gridvel]
         if missing:
             print(f'no grid velocity logged for {"n" if x_is_n else "h"} = '
@@ -673,12 +741,14 @@ def main():
 
     # Clear the secondary axis and its label when one is present.
     title_pad = 32 if gridvel else None
-    if args.title is not None:
-        ax.set_title(args.title, pad=title_pad)
+    if args.no_title:
+        pass
+    elif args.title is not None:
+        ax.set_title(args.title, pad=title_pad, fontsize=title_pt)
     else:
         ax.set_title(f'{quantity}  '
                      f'({fixed_desc}, p={args.fix_p}, {args.method})',
-                     pad=title_pad)
+                     pad=title_pad, fontsize=title_pt)
 
     # Values can sit outside the fixed scale, so flag which ends are clipped.
     below, above = bool((finite < vmin).any()), bool((finite > vmax).any())
@@ -690,7 +760,7 @@ def main():
     # from the axes' pre-aspect slot, which differs between the taller ALE
     # figure and the others; an inset anchored in ax coordinates tracks the real
     # box, so the bar is identical in size and position on every plot.
-    has_key = args.annotate in ('cfl', 'cflraw')
+    has_key = args.annotate in ('cfl', 'cflraw', 'cflnek')
     cbar_frac = 1.0 - KEY_ROWS / len(advy_vals) if has_key else 1.0
     cax = inset_axes(ax, width=CBAR_WIDTH_INCHES, height='100%',
                      loc='lower left',
@@ -698,11 +768,17 @@ def main():
                                      1., cbar_frac),
                      bbox_transform=ax.transAxes, borderpad=0)
     cbar = fig.colorbar(mesh, cax=cax, extend=extend)
-    cbar.set_label(quantity)
+    cbar.set_label(quantity, fontsize=axlabel_pt)
+    cbar.ax.tick_params(labelsize=label_pt)
+    if hatch and vmin < 1.0:
+        cax.axhspan(vmin, min(1.0, vmax), facecolor='none',
+                    edgecolor=STABLE_HATCH_COLOR, linewidth=0,
+                    hatch=STABLE_HATCH)
 
     # Bare cell numbers need a key saying what they are.
     # A sample cell, the same size as the grid's, level with the bottom row.
-    cell_key = {'cfl': 'CFL', 'cflraw': 'raw\nCFL'}.get(args.annotate)
+    cell_key = {'cfl': 'CFL', 'cflraw': 'raw\nCFL',
+                'cflnek': 'CFL'}.get(args.annotate)
     if cell_key:
         kw, kh = 1.0 / len(x_vals), 1.0 / len(advy_vals)
         kx = 1.0 + CBAR_PAD_FRAC
@@ -713,8 +789,8 @@ def main():
                 ha='center', va='center', color='#222222',
                 fontsize=cell_pt * (0.6 if '\n' in cell_key else 1.0),
                 linespacing=1.1)
-        ax.text(kx, kh + 0.15 * kh, 'Cell values:', transform=ax.transAxes,
-                ha='left', va='bottom')
+        ax.text(kx, kh + 0.15 * kh, 'Cell text\nvalues:', transform=ax.transAxes,
+                ha='left', va='bottom', fontsize=label_pt)
 
     ax.set_xlim(-0.5, len(x_vals) - 0.5)
     ax.set_ylim(-0.5, len(advy_vals) - 0.5)
