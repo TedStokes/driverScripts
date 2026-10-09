@@ -130,9 +130,10 @@ def main():
 
     if args.rename_n:
         AXIS_LABELS['n'] = 'Number of adaptive cycles'
-    x_off = -1 if (args.rename_n and args.xaxis == 'n') else 0
+    # Files, --fix-p and --exclude p= use Nektar NUMMODES; polynomial order is NUMMODES - 1
+    x_off = -1 if ((args.rename_n and args.xaxis == 'n') or args.xaxis == 'p') else 0
     color_key = 'cycles' if (args.rename_n and args.color == 'n') else args.color
-    c_disp = (lambda v: v - 1) if (args.rename_n and args.color == 'n') else (lambda v: v)
+    c_disp = (lambda v: v - 1) if ((args.rename_n and args.color == 'n') or args.color == 'p') else (lambda v: v)
 
     # Parse --exclude specs into typed predicates
     _EXCL_TYPES = {'n': int, 'h': float, 'p': int, 'method': str}
@@ -238,6 +239,11 @@ def main():
 
     _METHOD_CMAP = {'Projection': color_map2, 'ALE': color_map3, 'FullInterp': color_map4}
 
+    # Paper wording for the Projection solution-transfer series
+    proj_st = 'Parametric sol. transfer' if args.paper else 'Proj sol. transfer'
+    if args.paper:
+        _METHOD_LABEL_FULL['Projection'] = proj_st
+
     fig, ax = plt.subplots(figsize=(5.5, 4.5) if args.paper else (8, 5))
     seen_labels = set()
 
@@ -259,7 +265,7 @@ def main():
                         label=label if label not in seen_labels else '_nolegend_')
                 seen_labels.add(label)
 
-                label2 = f'{color_key} = {c_disp(cv)} (Proj sol. transfer)'
+                label2 = f'{color_key} = {c_disp(cv)} ({proj_st})'
                 ax.plot(data[:, 0], data[:, mcol] - get_baseline(h, p),
                         color=color_map2[cv],
                         label=label2 if label2 not in seen_labels else '_nolegend_')
@@ -329,7 +335,7 @@ def main():
                 pts = sorted(groups2[cv])
                 xs, ys = zip(*pts)
                 ax.plot(xs, ys, marker='s', color=color_map2[cv],
-                        label=f'{color_key} = {c_disp(cv)} (Proj sol. transfer)')
+                        label=f'{color_key} = {c_disp(cv)} ({proj_st})')
 
             for cv in sorted(groups3.keys()):
                 pts = sorted(groups3[cv])
@@ -410,7 +416,7 @@ def main():
     if args.fix_n is not None:
         fixed_parts.append(f'cycles={args.fix_n - 1}' if args.rename_n else f'n={args.fix_n}')
     if args.fix_h is not None: fixed_parts.append(f'h={args.fix_h}')
-    if args.fix_p is not None: fixed_parts.append(f'p={args.fix_p}')
+    if args.fix_p is not None: fixed_parts.append(f'p={args.fix_p - 1}')
     fixed_str = ', '.join(fixed_parts)
     if args.paper:
         if args.fix_n is not None:
