@@ -371,7 +371,7 @@ def main():
                     bval = seen_p[p]
                     col = color_map[p] if args.color == 'p' else 'orange'
                     ax.axhline(bval, color=col, linestyle='--', linewidth=1.5,
-                               label=f'p = {p} ({ref_desc})', zorder=1)
+                               label=f'p = {p - 1} ({ref_desc})', zorder=1)
 
             for (method, cv) in sorted(groups.keys(), key=lambda k: (_METHOD_ORDER.get(k[0], 99), k[1])):
                 pts = sorted(groups[(method, cv)])
